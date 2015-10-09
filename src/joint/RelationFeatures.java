@@ -180,72 +180,7 @@ public class RelationFeatures extends PerceptronFeatureFunction {
 				}
 			}
 							
-			if(input.sentInfo.root!=null) {
-				Tree nodeFormer = getSegmentTreeNode(former, input);
-				Tree nodeLatter = getSegmentTreeNode(latter, input);
-				
-				Tree common = StanfordTree.getCommonAncestor(input.sentInfo.root, nodeFormer, nodeLatter);
-				addFeature("#PAR_"+common.value()+"_"+type, 1.0, status, y, map);
-				List<Tree> path = input.sentInfo.root.pathNodeToNode(nodeFormer, nodeLatter);
-				ArrayList<Tree> phrasePathDeleteOverlap = new ArrayList<Tree>();
-				String lastNodeValue = "";
-				String featurePath =  "#CPP_";
-				for(int k=0;k<path.size();k++) {
-					Tree node  = path.get(k);
-					if(node.isPhrasal()) {
-						if(!node.value().equals(lastNodeValue)) {
-							phrasePathDeleteOverlap.add(node);
-							featurePath += node.value();
-						}
-						lastNodeValue = node.value();
-					}
-				}
-				if(phrasePathDeleteOverlap.size()==0)
-					addFeature("#CPHBNULL"+"_"+type, 1.0, status, y, map);
-				else if(phrasePathDeleteOverlap.size()==1)
-					addFeature("#CPHBFL_"+lastNodeValue+"_"+type, 1.0, status, y, map);
-				else {
-					addFeature("#CPHBF_"+phrasePathDeleteOverlap.get(0).value()+"_"+type, 1.0, status, y, map);
-					addFeature("#CPHBL_"+phrasePathDeleteOverlap.get(phrasePathDeleteOverlap.size()-1).value()+"_"+type, 1.0, status, y, map);
-					addFeature(featurePath+"_"+type, 1.0, status, y, map);
-				}
-				
-			}
-			
-			
-			if(input.sentInfo.depGraph!=null) {
-				// there may be someone who isn't in the semantic graph
-				IndexedWord nodeFormer  = input.sentInfo.depGraph.getNodeByIndexSafe(clHdFormer.index());
-				if(nodeFormer != null) {
-					List<SemanticGraphEdge> edges = input.sentInfo.depGraph.incomingEdgeList(nodeFormer);
-					for(int i=0;i<edges.size();i++) {
-						CoreLabel clGw  = edges.get(i).getGovernor();
-						String gw = clGw.lemma().toLowerCase();
-						addFeature("#EN1GW_"+gw+"_"+type, 1.0, status, y, map);
-						addFeature("#EN1GWPOS_"+clGw.tag()+"_"+type, 1.0, status, y, map);
-						addFeature("#EN1TP_GW_"+former.type+"_"+gw+"_"+type, 1.0, status, y, map);
-						addFeature("#HD1_GW_"+hdFormer+"_"+gw+"_"+type, 1.0, status, y, map);
-
-						break; // only take one dependent
-					}
-				}
-				
-				IndexedWord nodeLatter  = input.sentInfo.depGraph.getNodeByIndexSafe(clHdLatter.index());
-				if(nodeLatter != null) {
-					List<SemanticGraphEdge> edges = input.sentInfo.depGraph.incomingEdgeList(nodeLatter);
-					for(int i=0;i<edges.size();i++) {
-						CoreLabel clGw  = edges.get(i).getGovernor();
-						String gw = clGw.lemma().toLowerCase();
-						addFeature("#EN2GW_"+gw+"_"+type, 1.0, status, y, map);
-						addFeature("#EN2GWPOS_"+clGw.tag()+"_"+type, 1.0, status, y, map);
-						addFeature("#EN2TP_GW_"+latter.type+"_"+gw+"_"+type, 1.0, status, y, map);
-						addFeature("#HD2_GW_"+hdLatter+"_"+gw+"_"+type, 1.0, status, y, map);
 						
-						break; // only take one dependent
-					}
-				}
-			}
-			
 			
 			
 			

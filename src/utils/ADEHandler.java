@@ -119,7 +119,7 @@ public class ADEHandler {
 		
 		
 		// build the data source of joint experiment
-		findOverlappedAndRemove("F:/biomedical resource/ADE-Corpus-V2/DRUG-AE.rel",	"F:/biomedical resource/ADE-Corpus-V2/DRUG-AE-overlap.rel");
+		/*findOverlappedAndRemove("F:/biomedical resource/ADE-Corpus-V2/DRUG-AE.rel",	"F:/biomedical resource/ADE-Corpus-V2/DRUG-AE-overlap.rel");
 		makeAbstract(tool, entity_recognizer_ser, "F:/biomedical resource/ADE-Corpus-V2/DRUG-AE-overlap.rel", null, "E:/ade/abstract");
 		
 			
@@ -128,7 +128,10 @@ public class ADEHandler {
 				"F:/biomedical resource/ADE-Corpus-V2/ADE-NEG-1644-crf.txt", "F:/biomedical resource/ADE-Corpus-V2/ADE-NEG-1644-cantfind.txt");
 		buildNegtiveWithDict("F:/biomedical resource/ADE-Corpus-V2/ADE-NEG-1644-cantfind.txt",
 				"F:/biomedical resource/ADE-Corpus-V2/ADE-NEG-1644-dict.txt",
-				"F:/biomedical resource/ADE-Corpus-V2/ADE-NEG-1644-dict-cantfind.txt");
+				"F:/biomedical resource/ADE-Corpus-V2/ADE-NEG-1644-dict-cantfind.txt");*/
+		
+		makeWordResource("F:/biomedical resource/ADE-Corpus-V2/DRUG-AE.rel", "F:/biomedical resource/ADE-Corpus-V2/ADE-NEG.txt", 
+				"F:/biomedical resource/ADE-Corpus-V2/wordresource.txt");
 		
 		
 	}
@@ -919,5 +922,47 @@ OUT:			while(candidateAEPosition!=-1 ) {
 		
 		map.put("E#WDLEN_", token.word().length()/10.0);	
 		
+	}
+	// Build a resource used by word2vec
+	public static void makeWordResource(String posFile, String negFile, String output)  throws Exception{
+		OutputStreamWriter osw = new OutputStreamWriter(new FileOutputStream(output), "utf-8");
+		
+		BufferedReader positive = new BufferedReader(new InputStreamReader(new FileInputStream(posFile), "utf-8"));
+		String thisLine = null;
+		while ((thisLine = positive.readLine()) != null ) {
+			if(thisLine.isEmpty())
+				continue;
+			ADELine line = parsingLine(thisLine);
+			ADESentence sentence = new ADESentence(line.sentence);
+			
+			ArrayList<Segment> given = new ArrayList<Segment>();
+			ArrayList<Segment> segments = TokenizerWithSegment.tokenize(0, sentence.text, given);
+			
+			for(Segment segment:segments) {
+				osw.write(segment.word+" ");
+			}
+		}
+		positive.close();
+		
+		
+		BufferedReader negative = new BufferedReader(new InputStreamReader(new FileInputStream(negFile), "utf-8"));
+
+		while ((thisLine = negative.readLine()) != null && !thisLine.isEmpty()) {
+			ADELine line = parsingNeg(thisLine);
+						
+			ADESentence sentence = new ADESentence(line.sentence);
+			
+			ArrayList<Segment> given = new ArrayList<Segment>();
+			ArrayList<Segment> segments = TokenizerWithSegment.tokenize(0, sentence.text, given);
+			
+			for(Segment segment:segments) {
+				osw.write(segment.word+" ");
+			}
+		}
+		negative.close();
+		
+		
+		
+		osw.close();
 	}
 }

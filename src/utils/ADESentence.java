@@ -15,6 +15,11 @@ public class ADESentence implements Serializable{
 	public HashSet<Entity> entities; // use hashset to get rid of the overlapped entities
 	public HashSet<RelationEntity> relaitons;
 	
+	public ADESentence() {
+		entities = new HashSet<>();
+		relaitons = new HashSet<>();
+	}
+	
 	public ADESentence(String text) {
 		this.text =text;
 	}

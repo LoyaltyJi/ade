@@ -135,7 +135,7 @@ public class AdeJointMain {
 		
 				
 		// preprocess
-		boolean preprocess = false;
+		boolean preprocess = true;
 		if(preprocess) {
 			File fInstanceDir = new File(instance_dir);
 			IoUtils.clearDirectory(fInstanceDir);
@@ -166,7 +166,7 @@ public class AdeJointMain {
 		 
 		int maxTrainTime = Integer.parseInt(args[3]);
 		
-		nValidate(10, tool, beamSize, d, instance_dir, perceptron_ser, maxTrainTime, train_instance_dir, test_instance_dir
+		nValidate(10, tool, beamSize, d, instance_dir, perceptron_ser, maxTrainTime
 				, Boolean.parseBoolean(use_system_out) , Float.parseFloat(converge_threshold), Double.parseDouble(max_weight), group);
 		
 		
@@ -320,7 +320,7 @@ public class AdeJointMain {
 	}
 	
 	public static void nValidate(int nFold, Tool tool, int beamSize, TIntArrayList d, 
-			String instance_dir, String ser, int max_train_times, String train_instance_dir, String test_instance_dir
+			String instance_dir, String ser, int max_train_times
 			, boolean useSystemOut, float converge_threshold, double max_weight, String group) throws Exception {
 		
 		System.out.println("beam_size="+beamSize+", disease_max_len="+d.get(0)+", chemical_max_len="+d.get(1)+", train_times="+max_train_times
@@ -328,7 +328,7 @@ public class AdeJointMain {
 			
 		List[] splitted = null;
 		if(group != null) {
-			splitted = new ArrayList[10];
+			splitted = new ArrayList[nFold];
 			BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(group), "utf-8"));
 			String thisLine = null;
 			List<File> groupFile = new ArrayList<File>();
@@ -660,21 +660,11 @@ public class AdeJointMain {
 			// lemma
 			for(int i=0;i<tokens.size();i++)
 				tool.morphology.stem(tokens.get(i));
-			// parsing
-			Tree root = tool.lp.apply(tokens);
-			root.indexLeaves();
-			root.setSpans();
-			List<Tree> leaves = root.getLeaves();
-			// depend
-			GrammaticalStructure gs = tool.gsf.newGrammaticalStructure(root);
-			List<TypedDependency> tdl = gs.typedDependenciesCCprocessed();
-		    SemanticGraph depGraph = new SemanticGraph(tdl);
+			
 		    
 		    Sentence mySentence = new Sentence();
 			mySentence.tokens = tokens;
-			mySentence.root = root;
-			mySentence.leaves = leaves;
-			mySentence.depGraph = depGraph;
+			
 			mySentences.add(mySentence);
 			
 		}

@@ -1,5 +1,5 @@
-Manifest-Version: 0.1
+Manifest-Version: 0.2
 Created-By: li fei
-Built-Date: 2015-04-09
-Class-Path: ../lib/edu.mit.jwi_2.3.3_jdk.jar ../lib/ejml-0.23.jar ../lib/FoxNlpToolKit.jar ../lib/javax.json.jar ../lib/joda-time.jar ../lib/jollyday.jar ../lib/mallet.jar ../lib/mallet-deps.jar ../lib/stanford-corenlp-3.4.jar ../lib/xom.jar ./drug_disease.jar
+Built-Date: 2015-10-09
+Class-Path: ../lib/edu.mit.jwi_2.3.3_jdk.jar ../lib/FoxNlpToolKit.jar ../lib/mallet.jar ../lib/mallet-deps.jar ../lib/stanford-corenlp-3.4.jar
  

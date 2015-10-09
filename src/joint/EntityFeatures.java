@@ -53,11 +53,9 @@ public class EntityFeatures extends PerceptronFeatureFunction {
 		CoreLabel head = AdeJointMain.getHeadWordOfSegment(lastSegment, input);
 		String hdLemmaLow = head.lemma().toLowerCase();
 		{
+			// baseline
 			String text = lastSegment.text.toLowerCase();
 			addFeature("E#WD_"+lastSegment.type+"_"+text, 1.0, status, y, map);
-			
-			String posSeq = EntityFeatures.segmentToPosSequence(lastSegment, input);
-			addFeature("E#POSSEQ_"+lastSegment.type+"_"+posSeq, 1.0, status, y, map);
 			
 			if(lastSegment.start>=1) {
 				addFeature("E#PRETK_"+lastSegment.type+"_"+input.sentInfo.tokens.get(lastSegment.start-1).lemma().toLowerCase(), 1.0, status, y, map);
@@ -68,40 +66,18 @@ public class EntityFeatures extends PerceptronFeatureFunction {
 				addFeature("E#NEXTPOS_"+lastSegment.type+"_"+input.sentInfo.tokens.get(lastSegment.end+1).tag(), 1.0, status, y, map);
 			}
 			
-			
-			
+			// head
 			int len = hdLemmaLow.length()>4 ? 4:hdLemmaLow.length();
 			addFeature("E#HEAD_"+lastSegment.type+"_"+hdLemmaLow, 1.0, status, y, map);
 			addFeature("E#PREF_"+lastSegment.type+"_"+hdLemmaLow.substring(0, len), 1.0, status, y, map);
 			addFeature("E#SUF_"+lastSegment.type+"_"+hdLemmaLow.substring(hdLemmaLow.length()-len, hdLemmaLow.length()),1.0, status, y, map);
 			addFeature("E#HDPOS_"+lastSegment.type+"_"+head.tag(), 1.0, status, y, map);
 			
-			String bcHd = tool.entityBC.getPrefix(head.lemma());
-			addFeature("E#HEADBC_"+lastSegment.type+"_"+bcHd, 1.0, status, y, map);
-			
-			
-			if((tool.humando.contains(lastSegment.text) || tool.ctdmedic.contains(lastSegment.text)) 
-					&& !tool.stopWord.contains(lastSegment.text)) {
-				addFeature("E#DICTD_"+lastSegment.type, 1.0, status, y, map);
-			}
-			if((tool.chemElem.containsCaseSensitive(lastSegment.text) || tool.drugbank.contains(lastSegment.text) ||
-					tool.jochem.contains(lastSegment.text) || tool.ctdchem.contains(lastSegment.text))
-					&& !tool.stopWord.contains(lastSegment.text))
-				addFeature("E#DICTC_"+lastSegment.type, 1.0, status, y, map);
-			
-			POS[] poses = {POS.NOUN, POS.ADJECTIVE};
-			for(POS pos:poses) {
-				ISynset synset = WordNetUtil.getMostSynset(tool.dict, hdLemmaLow, pos);
-				if(synset!= null) {
-					addFeature("E#HDSYNS"+lastSegment.type+"_"+synset.getID(),1.0, status, y, map);
-				} 
+			// pattern
+			String posSeq = EntityFeatures.segmentToPosSequence(lastSegment, input);
+			addFeature("E#POSSEQ_"+lastSegment.type+"_"+posSeq, 1.0, status, y, map);
 
-				ISynset hypernym = WordNetUtil.getMostHypernym(tool.dict, hdLemmaLow, pos);
-				if(hypernym!= null) {
-					addFeature("E#HDHYPER"+lastSegment.type+"_"+hypernym.getID(),1.0, status, y, map);
-				}
-				
-			}
+			
 			
 			LexicalPattern lpattern = new LexicalPattern();
 			lpattern.getAll(lastSegment.text);
@@ -129,6 +105,35 @@ public class EntityFeatures extends PerceptronFeatureFunction {
 			
 			
 			addFeature("E#WDLEN_"+lastSegment.type, lastSegment.text.length()/10.0, status, y, map);
+			
+
+			String bcHd = tool.entityBC.getPrefix(head.lemma());
+			addFeature("E#HEADBC_"+lastSegment.type+"_"+bcHd, 1.0, status, y, map);
+			
+			// external
+			if((tool.humando.contains(lastSegment.text) || tool.ctdmedic.contains(lastSegment.text)) 
+					&& !tool.stopWord.contains(lastSegment.text)) {
+				addFeature("E#DICTD_"+lastSegment.type, 1.0, status, y, map);
+			}
+			if((tool.chemElem.containsCaseSensitive(lastSegment.text) || tool.drugbank.contains(lastSegment.text) ||
+					tool.jochem.contains(lastSegment.text) || tool.ctdchem.contains(lastSegment.text))
+					&& !tool.stopWord.contains(lastSegment.text))
+				addFeature("E#DICTC_"+lastSegment.type, 1.0, status, y, map);
+			
+			POS[] poses = {POS.NOUN, POS.ADJECTIVE};
+			for(POS pos:poses) {
+				ISynset synset = WordNetUtil.getMostSynset(tool.dict, hdLemmaLow, pos);
+				if(synset!= null) {
+					addFeature("E#HDSYNS"+lastSegment.type+"_"+synset.getID(),1.0, status, y, map);
+				} 
+
+				ISynset hypernym = WordNetUtil.getMostHypernym(tool.dict, hdLemmaLow, pos);
+				if(hypernym!= null) {
+					addFeature("E#HDHYPER"+lastSegment.type+"_"+hypernym.getID(),1.0, status, y, map);
+				}
+				
+			}
+			
 			
 		}
 		

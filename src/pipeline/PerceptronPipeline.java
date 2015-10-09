@@ -131,7 +131,7 @@ public class PerceptronPipeline {
 		tool.stopWord = stopWord;
 		
 		// preprocess
-		boolean preprocess = false;
+		boolean preprocess = true;
 		if(preprocess) {
 			File fInstanceDir = new File(instance_dir);
 			IoUtils.clearDirectory(fInstanceDir);
@@ -165,13 +165,13 @@ public class PerceptronPipeline {
 		
 		int maxTrainTime = Integer.parseInt(args[3]);
 		
-		nValidate(10, tool, beamSize, d, instance_dir, perceptron_entity_ser, perceptron_relation_ser, maxTrainTime, train_instance_dir, test_instance_dir
+		nValidate(10, tool, beamSize, d, instance_dir, perceptron_entity_ser, perceptron_relation_ser, maxTrainTime
 				, Float.parseFloat(converge_threshold), Double.parseDouble(max_weight), group);
 
 	}
 	
 	public static void nValidate(int nFold, Tool tool, int beamSize, TIntArrayList d, 
-			String instance_dir, String perceptron_entity_ser, String perceptron_relation_ser, int max_train_times, String train_instance_dir, String test_instance_dir
+			String instance_dir, String perceptron_entity_ser, String perceptron_relation_ser, int max_train_times
 			, float converge_threshold, double max_weight, String group) throws Exception {
 		
 		System.out.println("beam_size="+beamSize+", disease_max_len="+d.get(0)+", chemical_max_len="+d.get(1)+", train_times="+max_train_times

@@ -11,7 +11,7 @@ You can download the data directly at: https://sites.google.com/site/adecorpus/
 If you need the resources used in this project, please contact me.
 
 The architecture of this project is shown as below. 
-lib --- all the third-party libraries and tools
+lib --- the related libraries
 src --- all the source code
 *.properties --- configuration files
 
