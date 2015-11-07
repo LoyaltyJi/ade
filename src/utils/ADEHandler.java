@@ -866,7 +866,7 @@ OUT:			while(candidateAEPosition!=-1 ) {
 			map.put("#SUF_"+lem.substring(lem.length()-len, lem.length()),1.0);
 		}
 		
-		String bcHd = tool.entityBC.getPrefix(token.lemma());
+		String bcHd = tool.brownCluster.getPrefix(token.lemma());
 		map.put("E#HEADBC_"+bcHd, 1.0);
 		
 		

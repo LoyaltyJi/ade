@@ -1,5 +1,6 @@
 package drug_side_effect_utils;
 
+import java.io.Serializable;
 import java.util.regex.Pattern;
 
 import joint.Perceptron1;
@@ -18,7 +19,11 @@ import edu.stanford.nlp.process.TokenizerFactory;
 import edu.stanford.nlp.tagger.maxent.MaxentTagger;
 import edu.stanford.nlp.trees.GrammaticalStructureFactory;
 
-public class Tool {
+public class Tool implements Serializable{
+	/**
+	 * 
+	 */
+	private static final long serialVersionUID = 4107586324743403873L;
 	public SentenceSplitter sentSplit;
 	public TokenizerFactory<CoreLabel> tokenizerFactory;
 	public Tokenizer tokenizer;
@@ -44,8 +49,7 @@ public class Tool {
 	
 	public Sider sider;
 
-	public BrownCluster entityBC;
-	public BrownCluster relationBC;
+	public BrownCluster brownCluster;
 	
 	public StopWord stopWord;
 }

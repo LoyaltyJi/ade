@@ -127,7 +127,7 @@ public class PerceptronPipeline {
 		tool.chemElem = chemElem;
 		tool.drugbank = drugbank;
 		tool.humando = humando;
-		tool.entityBC = entityBC;
+		tool.brownCluster = entityBC;
 		tool.stopWord = stopWord;
 		
 		// preprocess

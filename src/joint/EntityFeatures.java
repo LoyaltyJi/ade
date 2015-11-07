@@ -107,7 +107,7 @@ public class EntityFeatures extends PerceptronFeatureFunction {
 			addFeature("E#WDLEN_"+lastSegment.type, lastSegment.text.length()/10.0, status, y, map);
 			
 
-			String bcHd = tool.entityBC.getPrefix(head.lemma());
+			String bcHd = tool.brownCluster.getPrefix(head.lemma());
 			addFeature("E#HEADBC_"+lastSegment.type+"_"+bcHd, 1.0, status, y, map);
 			
 			// external

@@ -129,8 +129,8 @@ public class RelationFeatures extends PerceptronFeatureFunction {
 				addFeature("#ET_"+type+"_"+former.type+"_"+latter.type, 1.0, status, y, map);
 				addFeature("#ET_"+type+"_"+latter.type+"_"+former.type, 1.0, status, y, map);
 				
-				String bcHdFormer = tool.entityBC.getPrefix(hdFormer);
-				String bcHdLatter = tool.entityBC.getPrefix(hdLatter);
+				String bcHdFormer = tool.brownCluster.getPrefix(hdFormer);
+				String bcHdLatter = tool.brownCluster.getPrefix(hdLatter);
 				addFeature("#HMBC_"+bcHdFormer+"_"+bcHdLatter+"_"+type, 1.0, status, y, map);
 				addFeature("#HMBC_"+bcHdLatter+"_"+bcHdFormer+"_"+type, 1.0, status, y, map);
 

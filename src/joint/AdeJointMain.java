@@ -130,12 +130,12 @@ public class AdeJointMain {
 		tool.chemElem = chemElem;
 		tool.drugbank = drugbank;
 		tool.humando = humando;
-		tool.entityBC = entityBC;
+		tool.brownCluster = entityBC;
 		tool.stopWord = stopWord;
 		
 				
 		// preprocess
-		boolean preprocess = true;
+		boolean preprocess = false;
 		if(preprocess) {
 			File fInstanceDir = new File(instance_dir);
 			IoUtils.clearDirectory(fInstanceDir);
