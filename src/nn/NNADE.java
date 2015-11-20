@@ -721,10 +721,10 @@ public class NNADE implements Serializable {
 			}
 			
 			// current brown
-			//example.featureIdx.add(getBrownID(getBrown(tokens.get(idx))));
+			example.featureIdx.add(getBrownID(getBrown(tokens.get(idx))));
 			
 			// context brown
-			/*for(int i=0;i<2;i++) {
+			for(int i=0;i<2;i++) {
 				int idxBefore = idx-1-i;
 				if(idxBefore>=0) {
 					example.featureIdx.add(getBrownID(getBrown(tokens.get(idxBefore))));
@@ -739,13 +739,13 @@ public class NNADE implements Serializable {
 				} else {
 					example.featureIdx.add(getBrownID(Parameters.PADDING));
 				}
-			}*/
+			}
 			
 			// current synset
-			//example.featureIdx.add(getSynsetID(getSynset(tokens.get(idx))));
+			example.featureIdx.add(getSynsetID(getSynset(tokens.get(idx))));
 			
 			// context synset
-			/*for(int i=0;i<2;i++) {
+			for(int i=0;i<2;i++) {
 				int idxBefore = idx-1-i;
 				if(idxBefore>=0) {
 					example.featureIdx.add(getSynsetID(getSynset(tokens.get(idxBefore))));
@@ -760,15 +760,15 @@ public class NNADE implements Serializable {
 				} else {
 					example.featureIdx.add(getSynsetID(Parameters.PADDING));
 				}
-			}*/
+			}
 			
 			// current hyper
-			//example.featureIdx.add(getHyperID(getHyper(tokens.get(idx))));
+			example.featureIdx.add(getHyperID(getHyper(tokens.get(idx))));
 			
 			// current dict
-			//example.featureIdx.add(getDictID(getDict(tokens.get(idx), tool)));
+			example.featureIdx.add(getDictID(getDict(tokens.get(idx), tool)));
 			// context dict
-			/*for(int i=0;i<2;i++) {
+			for(int i=0;i<2;i++) {
 				int idxBefore = idx-1-i;
 				if(idxBefore>=0) {
 					example.featureIdx.add(getDictID(getDict(tokens.get(idxBefore), tool)));
@@ -783,7 +783,7 @@ public class NNADE implements Serializable {
 				} else {
 					example.featureIdx.add(getDictID(Parameters.PADDING));
 				}
-			}*/
+			}
 			
 			/** 
 			 * The ones below are relation features.
@@ -802,10 +802,10 @@ public class NNADE implements Serializable {
 			example.featureIdx.add(-1);
 			
 			// entity wordnet
-			/*example.featureIdx.add(-1);
 			example.featureIdx.add(-1);
 			example.featureIdx.add(-1);
-			example.featureIdx.add(-1);*/
+			example.featureIdx.add(-1);
+			example.featureIdx.add(-1);
 			
 					
 			
@@ -858,39 +858,39 @@ public class NNADE implements Serializable {
 			}
 			
 			// current brown 
-			//example.featureIdx.add(-1);
+			example.featureIdx.add(-1);
 			
 			// context brown
-			/*for(int i=0;i<2;i++) {
+			for(int i=0;i<2;i++) {
 				example.featureIdx.add(-1);
 			}
 			for(int i=0;i<2;i++) {
 				example.featureIdx.add(-1);
-			}*/
+			}
 			
 			// current synset
-			//example.featureIdx.add(-1);
+			example.featureIdx.add(-1);
 			
 			// context synset
-			/*for(int i=0;i<2;i++) {
+			for(int i=0;i<2;i++) {
 				example.featureIdx.add(-1);
 			}
 			for(int i=0;i<2;i++) {
 				example.featureIdx.add(-1);
-			}*/
+			}
 			
 			// current hyper
-			//example.featureIdx.add(-1);
+			example.featureIdx.add(-1);
 						
 			// current dict
-			//example.featureIdx.add(-1);
+			example.featureIdx.add(-1);
 			// context dict
-			/*for(int i=0;i<2;i++) {
+			for(int i=0;i<2;i++) {
 				example.featureIdx.add(-1);
 			}
 			for(int i=0;i<2;i++) {
 				example.featureIdx.add(-1);
-			}*/
+			}
 			
 			/** 
 			 * The ones below are relation features.
@@ -920,10 +920,10 @@ public class NNADE implements Serializable {
 			example.featureIdx.add(getEntityTypeID(latter));
 			
 			// entity wordnet
-			/*example.featureIdx.add(getSynsetID(getSynset(former.text)));
+			example.featureIdx.add(getSynsetID(getSynset(former.text)));
 			example.featureIdx.add(getSynsetID(getSynset(latter.text)));
 			example.featureIdx.add(getHyperID(getHyper(former.text)));
-			example.featureIdx.add(getHyperID(getHyper(latter.text)));*/
+			example.featureIdx.add(getHyperID(getHyper(latter.text)));
 			
 									
 			/*
