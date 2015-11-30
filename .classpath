@@ -6,6 +6,6 @@
 	<classpathentry kind="lib" path="D:/mallet/mallet-2.0.7/dist/mallet-deps.jar"/>
 	<classpathentry kind="lib" path="D:/mallet/mallet-2.0.7/dist/mallet.jar"/>
 	<classpathentry kind="lib" path="D:/stanford/stanford-corenlp-full-2014-06-16/stanford-corenlp-3.4.jar"/>
-	<classpathentry kind="lib" path="lib/FoxNlpToolKit.jar"/>
+	<classpathentry kind="lib" path="F:/eclipse-4.5/workspace/FoxNlpToolKit.jar"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>

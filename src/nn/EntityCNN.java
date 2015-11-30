@@ -14,7 +14,7 @@ public class EntityCNN implements Serializable {
 	
 	public Parameters parameters;
 	
-	public NNADE nnade;
+	public Father nnade;
 	public NN nn;
 	
 	public double[][] filterW;
@@ -26,7 +26,7 @@ public class EntityCNN implements Serializable {
 	
 	public boolean debug;
 	
-	public EntityCNN(Parameters parameters, NNADE nnade, NN nn, boolean debug) {
+	public EntityCNN(Parameters parameters, Father nnade, NN nn, boolean debug) {
 		this.parameters = parameters;
 		this.nnade = nnade;
 		this.nn = nn;
@@ -65,9 +65,9 @@ public class EntityCNN implements Serializable {
 				int wordIdx = k+wordCount;
 				double[] emb = null;
 				if(wordIdx<=entityIdx.size()-1) {
-					emb = nnade.E[entityIdx.get(wordIdx)];
+					emb = nnade.getE()[entityIdx.get(wordIdx)];
 				} else {
-					emb = nnade.E[nnade.getPaddingID()];
+					emb = nnade.getE()[nnade.getPaddingID()];
 				}
 				
 				for(int j=0;j<parameters.entityDimension;j++) {
@@ -142,7 +142,7 @@ public class EntityCNN implements Serializable {
 				} else {
 					embId = nnade.getPaddingID();
 				}
-				emb = nnade.E[embId];
+				emb = nnade.getE()[embId];
 				
 				for(int j=0;j<gradS[0].length;j++) {
 					double delta2 = gradS[k][j]*S[k][j]*(1-S[k][j]);
@@ -172,7 +172,7 @@ public class EntityCNN implements Serializable {
 		if(parameters.bEmbeddingFineTune) {
 			for(int i=0; i< keeper.gradE.length; i++) {
 				for(int j=0; j < keeper.gradE[0].length;j++) {
-					keeper.gradE[i][j] += parameters.regParameter * nnade.E[i][j];
+					keeper.gradE[i][j] += parameters.regParameter * nnade.getE()[i][j];
 				}
 			}
 		}

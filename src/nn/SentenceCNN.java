@@ -10,7 +10,7 @@ public class SentenceCNN implements Serializable {
 	
 	public Parameters parameters;
 	
-	public NNADE nnade;
+	public Father nnade;
 	public NN nn;
 	
 	public double[][] filterW;
@@ -22,7 +22,7 @@ public class SentenceCNN implements Serializable {
 	
 	public boolean debug;
 	
-	public SentenceCNN(Parameters parameters, NNADE nnade, NN nn, boolean debug) {
+	public SentenceCNN(Parameters parameters, Father nnade, NN nn, boolean debug) {
 		this.parameters = parameters;
 		this.nnade = nnade;
 		this.nn = nn;
@@ -65,9 +65,9 @@ public class SentenceCNN implements Serializable {
 				int wordIdx = k+wordCount;
 				double[] emb = null;
 				if(wordIdx<=example.sentenceIdx.size()-1) {
-					emb = nnade.E[example.sentenceIdx.get(wordIdx)];
+					emb = nnade.getE()[example.sentenceIdx.get(wordIdx)];
 				} else {
-					emb = nnade.E[nnade.getPaddingID()];
+					emb = nnade.getE()[nnade.getPaddingID()];
 				}
 				
 				for(int j=0;j<parameters.sentenceDimension;j++) {
@@ -79,9 +79,9 @@ public class SentenceCNN implements Serializable {
 				
 				if(parameters.usePosition) {
 					if(wordIdx<=example.positionIdxFormer.size()-1) {
-						emb = nnade.E[example.positionIdxFormer.get(wordIdx)];
+						emb = nnade.getE()[example.positionIdxFormer.get(wordIdx)];
 					} else {
-						emb = nnade.E[nnade.getPositionID(NNADE.UNKNOWN_POSITION)];
+						emb = nnade.getE()[nnade.getPositionID(NNADE.UNKNOWN_POSITION)];
 					}
 					for(int j=0;j<parameters.sentenceDimension;j++) {
 						for(int m=0;m<parameters.embeddingSize;m++) {
@@ -91,9 +91,9 @@ public class SentenceCNN implements Serializable {
 					offset += parameters.embeddingSize;
 					
 					if(wordIdx<=example.positionIdxLatter.size()-1) {
-						emb = nnade.E[example.positionIdxLatter.get(wordIdx)];
+						emb = nnade.getE()[example.positionIdxLatter.get(wordIdx)];
 					} else {
-						emb = nnade.E[nnade.getPositionID(NNADE.UNKNOWN_POSITION)];
+						emb = nnade.getE()[nnade.getPositionID(NNADE.UNKNOWN_POSITION)];
 					}
 					for(int j=0;j<parameters.sentenceDimension;j++) {
 						for(int m=0;m<parameters.embeddingSize;m++) {
@@ -169,7 +169,7 @@ public class SentenceCNN implements Serializable {
 				} else {
 					embId = nnade.getPaddingID();
 				}
-				emb = nnade.E[embId];
+				emb = nnade.getE()[embId];
 				
 				for(int j=0;j<gradS[0].length;j++) {
 					double delta2 = gradS[k][j]*S[k][j]*(1-S[k][j]);
@@ -188,7 +188,7 @@ public class SentenceCNN implements Serializable {
 					} else {
 						embId = nnade.getPositionID(NNADE.UNKNOWN_POSITION);
 					}
-					emb = nnade.E[embId];
+					emb = nnade.getE()[embId];
 					
 					for(int j=0;j<gradS[0].length;j++) {
 						double delta2 = gradS[k][j]*S[k][j]*(1-S[k][j]);
@@ -206,7 +206,7 @@ public class SentenceCNN implements Serializable {
 					} else {
 						embId = nnade.getPositionID(NNADE.UNKNOWN_POSITION);
 					}
-					emb = nnade.E[embId];
+					emb = nnade.getE()[embId];
 					
 					for(int j=0;j<gradS[0].length;j++) {
 						double delta2 = gradS[k][j]*S[k][j]*(1-S[k][j]);
@@ -237,7 +237,7 @@ public class SentenceCNN implements Serializable {
 		if(parameters.bEmbeddingFineTune) {
 			for(int i=0; i< keeper.gradE.length; i++) {
 				for(int j=0; j < keeper.gradE[0].length;j++) {
-					keeper.gradE[i][j] += parameters.regParameter * nnade.E[i][j];
+					keeper.gradE[i][j] += parameters.regParameter * nnade.getE()[i][j];
 				}
 			}
 		}

@@ -142,9 +142,8 @@ public class Parameters implements Serializable{
 	  public int positionDimension = 50;
 	  public boolean usePosition = false;
 	  
-	  // at least 1, if 0, beam is not used
+	  // at least 1
 	  public int beamSize = 1;
-	  public boolean beamMeanSoftmax = true;
 	  		
 	  public Parameters(Properties properties) {
 	    setProperties(properties);
@@ -195,7 +194,6 @@ public class Parameters implements Serializable{
 			
 		
 		beamSize = PropertiesUtils.getInt(props, "beamSize", beamSize);
-		beamMeanSoftmax = PropertiesUtils.getBool(props, "beamMeanSoftmax", beamMeanSoftmax);
 	  }
 	
 	 	
@@ -238,7 +236,6 @@ public class Parameters implements Serializable{
 		System.out.printf("usePosition = %b%n", usePosition);
 		
 		System.out.printf("beamSize = %d%n", beamSize);
-		System.out.printf("beamMeanSoftmax = %b%n", beamMeanSoftmax);
 		
 		System.out.println(SEPARATOR);
 	  }

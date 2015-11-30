@@ -1,7 +1,10 @@
 package nn;
 
+import java.util.HashSet;
 import java.util.List;
 
+import drug_side_effect_utils.Entity;
+import edu.stanford.nlp.ling.CoreLabel;
 import gnu.trove.TIntArrayList;
 
 
@@ -29,13 +32,18 @@ class Example {
   public TIntArrayList positionIdxFormer;
   public TIntArrayList positionIdxLatter;
   
-  
+  //perceptron
+  List<CoreLabel> tokens;
+  int idx;
+  Entity drug;
+  Entity disease;
+  HashSet<String> goldFeatures;
   
   /*
    * The label vector of this example
    * e.g. 0,0,1,0,0
    */
-  public TIntArrayList label;
+  public double[] label;
 
   public Example(boolean bRelation) {
     this.bRelation = bRelation;

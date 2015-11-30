@@ -14,6 +14,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.stream.IntStream;
 
+import cc.mallet.types.SparseVector;
 import gnu.trove.TIntArrayList;
 import gnu.trove.TIntHashSet;
 import gnu.trove.TIntIntHashMap;
@@ -55,15 +56,15 @@ public class NN implements Serializable{
 	
 	public boolean debug;
 	
-	public NNADE owner;
+	public Father owner;
 	
 	public int embFeatureNumber;
 	
 	public EntityCNN entityCNN;
 	public SentenceCNN sentenceCNN;
 	
-	
-	public NN(Parameters parameters, NNADE owner, TIntArrayList preComputed, Example example) {
+		
+	public NN(Parameters parameters, Father owner, TIntArrayList preComputed, Example example) {
 		super();
 		this.parameters = parameters;
 		this.owner = owner;
@@ -158,7 +159,7 @@ public class NN implements Serializable{
 				for(int i=0;i<entityIdx.size();i++) {
 					int embIdx = entityIdx.get(i);
 					for(int j=0;j<parameters.entityDimension;j++) {
-						emb[j] += owner.E[embIdx][j]/entityIdx.size();
+						emb[j] += owner.getE()[embIdx][j]/entityIdx.size();
 					}
 				}
 				State state = new State();
@@ -166,11 +167,11 @@ public class NN implements Serializable{
 				return state;
 																
 			} else if(parameters.entityPooling == 2) {
-				double[] emb = Arrays.copyOf(owner.E[entityIdx.get(0)], parameters.entityDimension);
+				double[] emb = Arrays.copyOf(owner.getE()[entityIdx.get(0)], parameters.entityDimension);
 				for(int j=0;j<parameters.entityDimension;j++) {
 					for(int i=1;i<entityIdx.size();i++) {
-						if(emb[j] < owner.E[entityIdx.get(i)][j])
-							emb[j] = owner.E[entityIdx.get(i)][j];
+						if(emb[j] < owner.getE()[entityIdx.get(i)][j])
+							emb[j] = owner.getE()[entityIdx.get(i)][j];
 					}
 					
 				}
@@ -212,7 +213,7 @@ public class NN implements Serializable{
 		          } else {
 		        	for (int nodeIndex=0; nodeIndex<parameters.hiddenSize; nodeIndex++) {
 		              for (int k = 0; k < parameters.embeddingSize; ++k)
-		                hidden[nodeIndex] += Whs.get(level)[nodeIndex][offset + k] * owner.E[tok][k];
+		                hidden[nodeIndex] += Whs.get(level)[nodeIndex][offset + k] * owner.getE()[tok][k];
 		            }
 		          }
 		          
@@ -277,7 +278,8 @@ public class NN implements Serializable{
               scores[i] += Wo[i][nodeIndex] * lastHidden3[nodeIndex];
 
         }
-
+		
+		
         return scores;
 	}
 		
@@ -285,7 +287,7 @@ public class NN implements Serializable{
 	 * Given some examples, compute from bottom to top for each example
 	 * back-propagate their gradient
 	 */
-	public GradientKeeper process(List<Example> examples) throws Exception {
+	public GradientKeeper process(List<Example> examples, Perceptron perceptron) throws Exception {
 		// precompute
 		Set<Integer> toPreCompute = getToPreCompute(examples);
 	    preCompute(toPreCompute);
@@ -339,7 +341,7 @@ public class NN implements Serializable{
 			          } else {
 			            for (int nodeIndex : ls) {
 			              for (int k = 0; k < parameters.embeddingSize; ++k)
-			                hidden[nodeIndex] += Whs.get(level)[nodeIndex][offset + k] * owner.E[tok][k];
+			                hidden[nodeIndex] += Whs.get(level)[nodeIndex][offset + k] * owner.getE()[tok][k];
 			            }
 			          }
 			          
@@ -412,24 +414,46 @@ public class NN implements Serializable{
 	        for (int i = 0; i < parameters.outputSize; ++i) {
 	        	// softmax
 	            scores[i] = Math.exp(scores[i] - maxScore);
-	            if (ex.label.get(i) == 1) sum1 += scores[i];
+	            if (ex.label[i] == 1) sum1 += scores[i];
 	            sum2 += scores[i];
 	          
 	        }
 
 	        // compute loss and correct rate of labels
 	        loss += (Math.log(sum2) - Math.log(sum1)) / examples.size();
-	        if (ex.label.get(optLabel) == 1)
+	        if (ex.label[optLabel] == 1)
 	          correct += 1.0 / examples.size();
 	        
 			
 			// Until now, the forward procedure has ended and backward begin
 	        
+	        // perceptron
+	        if(owner instanceof PerceptronNNADE) {
+	        	HashSet<String> features = null;
+	        	if(ex.bRelation) {
+	        		features = perceptron.featureFunction(ex.tokens, -1, PerceptronNNADE.transitionNumber2String(optLabel), ex.drug, ex.disease);
+	        	} else {
+	        		features = perceptron.featureFunction(ex.tokens, ex.idx, PerceptronNNADE.transitionNumber2String(optLabel), null, null); 
+	        	}
+	        	SparseVector preVector = perceptron.featuresToSparseVector(features);
+        		SparseVector goldVector = perceptron.featuresToSparseVector(ex.goldFeatures);
+        		SparseVector temp = goldVector.vectorAdd(preVector, -1);
+				perceptron.w = perceptron.w.vectorAdd(temp, 1);
+	        	
+	        	/*features.retainAll(ex.goldFeatures);
+	        	for(String gold:ex.goldFeatures) {
+	        		if(!features.contains(gold)) {
+	        			perceptron.w[perceptron.getFeatureIndex(gold)] += 1;
+	        		}
+	        	}*/
+
+	        }
+	        
 			// output -> highest hidden layer
 	        double[] gradHidden3 = new double[parameters.hiddenSize];
 	        for (int i = 0; i < parameters.outputSize; ++i) {
 	          
-	            double temp = -(ex.label.get(i) - scores[i] / sum2) / examples.size();
+	            double temp = -(ex.label[i] - scores[i] / sum2) / examples.size();
 	            for (int nodeIndex : lses.get(lses.size()-1)) {
 	              keeper.gradWo[i][nodeIndex] += temp * hidden3s.get(hidden3s.size()-1)[nodeIndex];
 	              gradHidden3[nodeIndex] += temp * Wo[i][nodeIndex];
@@ -466,7 +490,7 @@ public class NN implements Serializable{
 			          } else {
 			            for (int nodeIndex : lsCurrent) {
 			              for (int k = 0; k < parameters.embeddingSize; ++k) {
-			            	keeper.gradWhs.get(level)[nodeIndex][offset + k] += gradHidden[nodeIndex] * owner.E[tok][k];
+			            	keeper.gradWhs.get(level)[nodeIndex][offset + k] += gradHidden[nodeIndex] * owner.getE()[tok][k];
 			                if(parameters.bEmbeddingFineTune)
 			                	keeper.gradE[tok][k] += gradHidden[nodeIndex] * Whs.get(level)[nodeIndex][offset + k];
 			              }
@@ -559,7 +583,7 @@ public class NN implements Serializable{
 	        int offset = (x % embFeatureNumber) * parameters.embeddingSize;
 	        for (int j = 0; j < parameters.hiddenSize; ++j) {
 	          for (int k = 0; k < parameters.embeddingSize; ++k) {
-	        	keeper.gradWhs.get(0)[j][offset + k] += gradSaved[mapX][j] * owner.E[tok][k];
+	        	keeper.gradWhs.get(0)[j][offset + k] += gradSaved[mapX][j] * owner.getE()[tok][k];
 	            if(parameters.bEmbeddingFineTune)
 	            	keeper.gradE[tok][k] += gradSaved[mapX][j] * Whs.get(0)[j][offset + k];
 	          }
@@ -595,10 +619,10 @@ public class NN implements Serializable{
 	      }
 	
 	      if(parameters.bEmbeddingFineTune) {
-	    	  for (int i = 0; i < owner.E.length; ++i) {
-	  	        for (int j = 0; j < owner.E[i].length; ++j) {
-	  	          loss += parameters.regParameter * owner.E[i][j] * owner.E[i][j] / 2.0;
-	  	          keeper.gradE[i][j] += parameters.regParameter * owner.E[i][j];
+	    	  for (int i = 0; i < owner.getE().length; ++i) {
+	  	        for (int j = 0; j < owner.getE()[i].length; ++j) {
+	  	          loss += parameters.regParameter * owner.getE()[i][j] * owner.getE()[i][j] / 2.0;
+	  	          keeper.gradE[i][j] += parameters.regParameter * owner.getE()[i][j];
 	  	        }
 	  	      }
 	      }
@@ -640,10 +664,10 @@ public class NN implements Serializable{
 	    }
 
 	    if(parameters.bEmbeddingFineTune) {
-	    	for (int i = 0; i < owner.E.length; ++i) {
-	  	      for (int j = 0; j < owner.E[i].length; ++j) {
-	  	    	owner.eg2E[i][j] += keeper.gradE[i][j] * keeper.gradE[i][j];
-	  	    	owner.E[i][j] -= parameters.adaAlpha * keeper.gradE[i][j] / Math.sqrt(owner.eg2E[i][j] + parameters.adaEps);
+	    	for (int i = 0; i < owner.getE().length; ++i) {
+	  	      for (int j = 0; j < owner.getE()[i].length; ++j) {
+	  	    	owner.getEg2E()[i][j] += keeper.gradE[i][j] * keeper.gradE[i][j];
+	  	    	owner.getE()[i][j] -= parameters.adaAlpha * keeper.gradE[i][j] / Math.sqrt(owner.getEg2E()[i][j] + parameters.adaEps);
 	  	      }
 	  	    }
 	    }
@@ -701,7 +725,7 @@ public class NN implements Serializable{
 		      for (int j = 0; j < parameters.hiddenSize; ++j)
 		        for (int k = 0; k < parameters.embeddingSize; ++k)
 		          saved[mapX][j] += Whs.get(0)[j][pos * parameters.embeddingSize + k]
-		          						* owner.E[tok][k];
+		          						* owner.getE()[tok][k];
 	    }
 	    
 	    
@@ -728,7 +752,7 @@ public class NN implements Serializable{
         for (int i = 0; i < parameters.outputSize; ++i) {
         	// softmax
             scores[i] = Math.exp(scores[i] - maxScore);
-            if (ex.label.get(i) == 1) sum1 += scores[i];
+            if (ex.label[i] == 1) sum1 += scores[i];
             sum2 += scores[i];
           
         }
@@ -882,7 +906,7 @@ class GradientKeeper {
 		gradWo = new double[nn.Wo.length][nn.Wo[0].length];
 		gradE = null;
 		if(parameters.bEmbeddingFineTune)	
-			gradE = new double[nn.owner.E.length][nn.owner.E[0].length];
+			gradE = new double[nn.owner.getE().length][nn.owner.getE()[0].length];
 			
 	}
 }

@@ -20,6 +20,7 @@ import cn.fox.biomedical.Sider;
 import cn.fox.machine_learning.BrownCluster;
 import cn.fox.nlp.EnglishPos;
 import cn.fox.nlp.Punctuation;
+import cn.fox.nlp.Word2Vec;
 import cn.fox.stanford.Tokenizer;
 import cn.fox.utils.CharCode;
 import cn.fox.utils.Evaluater;
@@ -45,12 +46,8 @@ import gnu.trove.TObjectIntHashMap;
 import utils.ADESentence;
 import utils.Abstract;
 
-public class NNADE extends Father implements Serializable {
+public class PerceptronNNADE extends Father implements Serializable {
 
-	/**
-	 * 
-	 */
-	private static final long serialVersionUID = 6814631308712316743L;
 	public NN nn;
 	public Parameters parameters;
 	// dictionary
@@ -95,7 +92,9 @@ public class NNADE extends Father implements Serializable {
 	
 	public static final int UNKNOWN_POSITION = 101;
 	
-	public NNADE(Parameters parameters) {
+	Perceptron perceptron;
+	
+	public PerceptronNNADE(Parameters parameters) {
 		
 		this.parameters = parameters;
 	}
@@ -180,7 +179,7 @@ public class NNADE extends Father implements Serializable {
 
 			}
 			
-			NNADE nnade = new NNADE(parameters);
+			PerceptronNNADE nnade = new PerceptronNNADE(parameters);
 			nnade.debug = Boolean.parseBoolean(args[1]);
 			//nnade.brownCluster = brown;
 			//nnade.wordnet = dict;
@@ -354,67 +353,18 @@ public class NNADE extends Father implements Serializable {
 		                          knownSynSet.size()+knownHyper.size()+knownDict.size()+knownEntityType.size()
 		                          +knownRelationDict.size()+knownPosition.size()][parameters.embeddingSize];
 		eg2E = new double[E.length][E[0].length];
-		Random random = new Random(System.currentTimeMillis());
-		if(embedFile!=null && !embedFile.isEmpty()) { // try to load off-the-shelf embeddings
-		    embedID = new TObjectIntHashMap<String>();
-		    BufferedReader input = null;
-		    
-			  input = IOUtils.readerFromString(embedFile);
-			  List<String> lines = new ArrayList<String>();
-			  for (String s; (s = input.readLine()) != null; ) {
-			    lines.add(s);
-			  }
-			
-			  
-			  String[] splits = lines.get(0).split("\\s+");
-			  
-			  int nWords = Integer.parseInt(splits[0]);
-			  int dim = Integer.parseInt(splits[1]);
-			  lines.remove(0);
-			  embeddings = new double[nWords][dim];
-			
-			  
-			  for (int i = 0; i < lines.size(); ++i) {
-			    splits = lines.get(i).split("\\s+");
-			    embedID.put(splits[0], i);
-			    for (int j = 0; j < dim; ++j)
-			      embeddings[i][j] = Double.parseDouble(splits[j + 1]);
-			  }
-			  
-			  // using loaded embeddings to initial E
-			  
-			  for (int i = 0; i < E.length; ++i) {
-			    int index = -1;
-			    if (i < knownWords.size()) {
-			      String str = knownWords.get(i);
-			      //NOTE: exact match first, and then try lower case..
-			      if (embedID.containsKey(str)) index = embedID.get(str);
-			      else if (embedID.containsKey(str.toLowerCase())) index = embedID.get(str.toLowerCase());
-			    }
-			
-			    if (index >= 0) {
-			      for (int j = 0; j < E[0].length; ++j)
-			        E[i][j] = embeddings[index][j];
-			    } else {
-			      for (int j = 0; j < E[0].length; ++j)
-			        E[i][j] = random.nextDouble() * parameters.initRange * 2 - parameters.initRange;
-			    }
-			  }
-			
-		} else { // initialize E randomly
-			System.out.println("No Embedding File, so initialize E randomly!");
-			for(int i=0;i<E.length;i++) {
-				for(int j=0;j<E[0].length;j++) {
-					E[i][j] = random.nextDouble() * parameters.initRange * 2 - parameters.initRange;
-				}
-			}
-		}
+		Word2Vec.loadEmbedding(embedFile, E, parameters.initRange, knownWords);
+		
+		// new a perceptron
+		perceptron  = new Perceptron();
 
 		// generate training examples
 		Counter<Integer> tokPosCount = new IntCounter<>();
-		List<Example> exampleEntity = generateEntityTrainExamples(trainAbs, tokPosCount, tool);
-		List<Example> exampleRelation = generateRelationTrainExamples(trainAbs, tokPosCount, tool);
-		System.out.println("non-composite feature number: "+exampleEntity.get(0).featureIdx.size());
+		List<Example> allExamples = generateExamples(trainAbs, tokPosCount, tool);
+		System.out.println("non-composite feature number: "+allExamples.get(0).featureIdx.size());
+		perceptron.addGoldFeature();
+	    System.out.println("perceptron gold feature number: "+perceptron.featureAlphabet.size());
+	    //perceptron.freezeFeature = true;
 		// initialize preComputed
 		preComputed = new TIntArrayList();
 	    List<Integer> sortedTokens = Counters.toSortedList(tokPosCount, false);
@@ -424,7 +374,7 @@ public class NNADE extends Father implements Serializable {
 	    }
 		
 		// new a NN and initialize its weight
-		nn  = new NN(parameters, this, preComputed, exampleEntity.get(0));
+		nn  = new NN(parameters, this, preComputed, allExamples.get(0));
 		nn.debug = debug;
 		
 		// train iteration
@@ -436,24 +386,14 @@ public class NNADE extends Father implements Serializable {
 				System.out.println("##### Iteration " + iter);
 			
 			// mini-batch
-			int batchSizeEntity = (int)(exampleEntity.size()*parameters.batchEntityPercent);
-			if(batchSizeEntity == 0)
-				batchSizeEntity++;
-			List<Example> batchExampleEntity = Util.getRandomSubList(exampleEntity, batchSizeEntity);
-			
-			int batchSizeRelation = (int)(exampleRelation.size()*parameters.batchRelationPercent);
-			if(batchSizeRelation == 0)
-				batchSizeRelation++;
-			List<Example> batchExampleRelation = Util.getRandomSubList(exampleRelation, batchSizeRelation);
-			
-			
-			List<Example> examples = new ArrayList<>();
-			examples.addAll(batchExampleEntity);
-			examples.addAll(batchExampleRelation);
+			int batchSize = (int)(allExamples.size()*parameters.batchEntityPercent);
+			if(batchSize == 0)
+				batchSize++;
+			List<Example> examples = Util.getRandomSubList(allExamples, batchSize);
 			if(debug)
 				System.out.println("batch size: "+examples.size());
 			
-			GradientKeeper keeper = nn.process(examples, null);
+			GradientKeeper keeper = nn.process(examples, perceptron);
 			
 			//nn.checkGradients(keeper, examples);
 			nn.updateWeights(keeper);
@@ -462,10 +402,13 @@ public class NNADE extends Father implements Serializable {
 				System.out.println("Elapsed Time: " + (System.currentTimeMillis() - startTime) / 1000.0 + " (s)");
 			
 			if (iter>0 && iter % parameters.evalPerIter == 0) {
+				perceptron.freezeFeature = true;
 				evaluate(tool, testAbs, modelFile, best);
+				perceptron.freezeFeature = false;
 			}			
 		}
 		
+		perceptron.freezeFeature = true;
 		evaluate(tool, testAbs, modelFile, best);
 		
 		return best;
@@ -478,14 +421,19 @@ public class NNADE extends Father implements Serializable {
         // necessary because we're updating weights -- for normal
         // prediction, we just do this once 
         nn.preCompute();
+        
+        
 
         DecodeStatistic stat = new DecodeStatistic();
         for(Abstract testAb:testAbs) {
         	for(ADESentence gold:testAb.sentences) {
         		List<CoreLabel> tokens = prepareNLPInfo(tool, gold);
         		ADESentence predicted = null;
-        		predicted = decode(tokens, tool);
         		
+	        	Beam beam = new Beam(parameters.beamSize);
+	        	predicted = decodeWithBeam(tokens, tool, beam);
+        		
+
         		stat.ctPredictEntity += predicted.entities.size();
         		stat.ctTrueEntity += gold.entities.size();
         		for(Entity preEntity:predicted.entities) {
@@ -530,71 +478,14 @@ public class NNADE extends Father implements Serializable {
           best.pRelation = pRelation;
           best.rRelation = rRelation;
           best.f1Relation = f1Relation;
-          ObjectSerializer.writeObjectToFile(this, modelFile);
+          //ObjectSerializer.writeObjectToFile(this, modelFile);
         }
         
 	}
 	
-	public List<Example> generateEntityTrainExamples(List<Abstract> trainAbs, Counter<Integer> tokPosCount, Tool tool)
-			throws Exception {
+	public List<Example> generateExamples(List<Abstract> trainAbs, Counter<Integer> tokPosCount, Tool tool) throws Exception {
 		List<Example> ret = new ArrayList<>();
-				
-		for(Abstract ab:trainAbs) { 
-			for(ADESentence sentence:ab.sentences) {
-				// for each sentence
-				List<CoreLabel> tokens = prepareNLPInfo(tool, sentence);
-				// resort the entities in the sentence
-				List<Entity> entities = Util.resortEntity(sentence);
-				
-				// for each token, we generate an entity example
-				for(int idx=0;idx<tokens.size();idx++) {
-					Example example = getExampleFeatures(tokens, idx, false, null, null, tool, entities);
-					double[] goldLabel = {0,0,0,0,0,0};
-					CoreLabel token = tokens.get(idx);
-					
-					int index = Util.isInsideAGoldEntityAndReturnIt(token.beginPosition(), token.endPosition(), entities);
-					
-					if(index == -1) {
-						// other
-						goldLabel[0] = 1;
-					} else {
-						Entity gold = entities.get(index);
-						if(Util.isFirstWordOfEntity(gold, token)) {
-							if(gold.type.equals(Parameters.CHEMICAL)) {
-								// new chemical
-								goldLabel[1] = 1;
-							} else {
-								// new disease
-								goldLabel[2] = 1;
-							}
-						} else {
-							// append
-							goldLabel[3] = 1;
-						}
-						
-						
-					}
-					
-					example.label = goldLabel;
-					ret.add(example);
-					
-					for(int j=0; j<example.featureIdx.size(); j++)
-						if(example.featureIdx.get(j) != -1)
-							tokPosCount.incrementCount(example.featureIdx.get(j)*example.featureIdx.size()+j);
-					
-				}
-				
-				
-			}
-		}
 		
-		return ret;
-	}
-	
-	public List<Example> generateRelationTrainExamples(List<Abstract> trainAbs, Counter<Integer> tokPosCount, Tool tool)
-			throws Exception {
-		List<Example> ret = new ArrayList<>();
-				
 		for(Abstract ab:trainAbs) { 
 			for(ADESentence sentence:ab.sentences) {
 				// for each sentence
@@ -604,25 +495,88 @@ public class NNADE extends Father implements Serializable {
 				// fill 'start' and 'end' of the entities
 				Util.fillEntity(entities, tokens);
 				
+				// for each token, we generate an entity example
+				for(int idx=0;idx<tokens.size();idx++) {
+					Example example = getExampleFeatures(tokens, idx, false, null, null, tool, entities);
+					double[] goldLabel = {0,0,0,0,0,0};
+					int optLabel = -1;
+					CoreLabel token = tokens.get(idx);
+					
+					int index = Util.isInsideAGoldEntityAndReturnIt(token.beginPosition(), token.endPosition(), entities);
+					
+					if(index == -1) {
+						// other
+						goldLabel[0] = 1;
+						optLabel = 0;
+					} else {
+						Entity gold = entities.get(index);
+						if(Util.isFirstWordOfEntity(gold, token)) {
+							if(gold.type.equals(Parameters.CHEMICAL)) {
+								// new chemical
+								goldLabel[1] = 1;
+								optLabel = 1;
+							} else {
+								// new disease
+								goldLabel[2] = 1;
+								optLabel = 2;
+							}
+						} else {
+							// append
+							goldLabel[3] = 1;
+							optLabel = 3;
+						}
+						
+						
+					}
+					
+					example.label = goldLabel;
+					ret.add(example);
+					
+					// fill the information that the perceptron needs
+					example.tokens = tokens;
+					example.idx = idx;
+					example.goldFeatures = perceptron.featureFunction(tokens, idx, transitionNumber2String(optLabel), null, null); 
+					perceptron.featureAlphabet.addAll(example.goldFeatures);
+					
+					for(int j=0; j<example.featureIdx.size(); j++)
+						if(example.featureIdx.get(j) != -1)
+							tokPosCount.incrementCount(example.featureIdx.get(j)*example.featureIdx.size()+j);
+					
+				}
+				
 				// for each entity pair, we generate a relation example
 				for(int i=0;i<entities.size();i++) {
 					Entity latter = entities.get(i);
 					for(int j=0;j<i;j++) {
 						Entity former = entities.get(j);
+						if(latter.type.equals(former.type))
+							continue;
 						
 						Example example = getExampleFeatures(tokens, -1, true, former, latter, tool, entities);
 						double[] goldLabel = {0,0,0,0,0,0};
+						int optLabel = -1;
 						
 						RelationEntity tempRelation = new RelationEntity(Parameters.RELATION, former, latter);
 						if(sentence.relaitons.contains(tempRelation)) {
 							// connect
 							goldLabel[5] = 1;
+							optLabel = 5;
 						} else {
 							// not connect
 							goldLabel[4] = 1;
+							optLabel = 4;
 						}
 						example.label = goldLabel;
 						ret.add(example);
+						
+						// fill the information that the perceptron needs
+						Entity drug = former.type.equals("Chemical") ? former:latter;
+						Entity disease = former.type.equals("Chemical") ? latter:former;
+						example.tokens = tokens;
+						example.drug = drug;
+						example.disease = disease;
+						example.goldFeatures = perceptron.featureFunction(tokens, -1, transitionNumber2String(optLabel), drug, disease); 
+						perceptron.featureAlphabet.addAll(example.goldFeatures);
 						
 						for(int k=0; k<example.featureIdx.size(); k++)
 							if(example.featureIdx.get(k) != -1)
@@ -630,12 +584,43 @@ public class NNADE extends Father implements Serializable {
 					}
 				}
 				
-	
+				
 			}
 		}
 		
 		return ret;
 	}
+	
+	public static String transitionNumber2String(int optLabel) throws Exception {
+		String ret = null;
+		switch(optLabel) {
+			case 0:
+				ret = "O";
+				break;
+			case 1:
+				ret = "NC";
+				break;
+			case 2:
+				ret = "ND";
+				break;
+			case 3: 
+				ret = "APP";
+				break;
+			case 4:
+				ret = "NOT";
+				break;
+			default:
+				ret = "ADE";
+				break;
+		}
+
+		if(ret==null)
+			throw new Exception(); 
+		return ret;
+	}
+	
+		
+	
 	
 	// Given the tokens of a sentence and the index of current token, generate a example filled with
 	// all features but labels not 
@@ -1174,156 +1159,61 @@ public class NNADE extends Father implements Serializable {
 	}
 
 	// Given a raw sentence, output the prediction
-	public ADESentence decode(List<CoreLabel> tokens, Tool tool) throws Exception {
-		Prediction prediction = new Prediction();
+	public ADESentence decodeWithBeam(List<CoreLabel> tokens, Tool tool, Beam beam) throws Exception {
+		
 		for(int idx=0;idx<tokens.size();idx++) {
+			List<Prediction> buf = new ArrayList<>();
 			// prepare the input for NN
 			Example ex = getExampleFeatures(tokens, idx, false, null, null, tool, null);
-			int transition = nn.giveTheBestChoice(ex);
-			prediction.addLabel(transition, -1);
-				
-			// generate entities based on the latest label
-			int curTran = prediction.labels.get(prediction.labels.size()-1);
-			if(curTran==1) { // new chemical
-				CoreLabel current = tokens.get(idx);
-				  Entity chem = new Entity(null, Parameters.CHEMICAL, current.beginPosition(), 
-						  current.word(), null);
-				  chem.start = idx;
-				  chem.end = idx;
-				  prediction.entities.add(chem);
-			} else if(curTran==2) {// new disease
-				CoreLabel current = tokens.get(idx);
-				  Entity disease = new Entity(null, Parameters.DISEASE, current.beginPosition(), 
-						  current.word(), null);
-				  disease.start = idx;
-				  disease.end = idx;
-				  prediction.entities.add(disease);
-			} else if(curTran==3 && checkWrongState(prediction)) { // append the current entity
-				Entity old = prediction.entities.get(prediction.entities.size()-1);
-				CoreLabel current = tokens.get(idx);
-				int whitespaceToAdd = current.beginPosition()-(old.offset+old.text.length());
-				for(int j=0;j<whitespaceToAdd;j++)
-					old.text += " ";
-				old.text += current.word();
-				old.end = idx;
-			}
+			double[] scores1 = nn.computeScores(ex);
 			
-			// begin to predict relations
-			int lastTran = prediction.labels.size()>=2 ? prediction.labels.get(prediction.labels.size()-2) : -1;
-			// judge whether to generate relations
-			if((lastTran==1 && curTran==1) || (lastTran==1 && curTran==2) || (lastTran==1 && curTran==0)
-					|| (lastTran==2 && curTran==0) || (lastTran==2 && curTran==1) || (lastTran==2 && curTran==2)
-					|| (lastTran==3 && curTran==0) || (lastTran==3 && curTran==1) || (lastTran==3 && curTran==2)
-			) { 
-				if((lastTran==3 && checkWrongState(prediction)) || lastTran==1 || lastTran==2) {
-					// if curTran 1 or 2, the last entities should not be considered
-					int latterIdx = (curTran==1 || curTran==2) ? prediction.entities.size()-2:prediction.entities.size()-1;
-					Entity latter = prediction.entities.get(latterIdx);
-					for(int j=0;j<latterIdx;j++) {
-						Entity former = prediction.entities.get(j);
-						Example relationExample = getExampleFeatures(tokens, idx, true, former, latter, tool, prediction.entities);
-						transition = nn.giveTheBestChoice(relationExample);
-						prediction.addLabel(transition,-1);
+			if(beam.items.size()==0) { // generate predictions without copy
+				for (int i = 0; i < parameters.outputSize-2; ++i) {
+		            Prediction prediction = new Prediction();
+		            prediction.addLabel(i, scores1[i]);
+		            //prediction.currentFeatures = perceptron.featureFunction(tokens, idx, transitionNumber2String(i), null, null); 
+		            prediction.entityFeatures.addAll(perceptron.featureFunction(tokens, idx, transitionNumber2String(i), null, null));
+		            prediction.perceptron = perceptron;
+		            buf.add(prediction);
 
-			            // generate relations based on the latest label
-			            curTran = prediction.labels.get(prediction.labels.size()-1);
-			        	if(curTran == 5) { // connect
-							RelationEntity relationEntity = new RelationEntity(Parameters.RELATION, former, latter);
-							prediction.relations.add(relationEntity);
-			        	}
+		        }
+			} else { // generate predictions with copying items in the beam
+				for(int k=0;k<beam.items.size();k++) {
+			        for (int i = 0; i < parameters.outputSize-2; ++i) {
+			            Prediction prediction = new Prediction();
+			            prediction.copy((Prediction)beam.items.get(k));
+			            prediction.addLabel(i, scores1[i]);
+			            //prediction.currentFeatures = perceptron.featureFunction(tokens, idx, transitionNumber2String(i), null, null);
+			            prediction.entityFeatures.addAll(perceptron.featureFunction(tokens, idx, transitionNumber2String(i), null, null));
+			            prediction.perceptron = perceptron;
+			            buf.add(prediction);
 
-					}
+			        }
 				}
-				
 			}
+			beam.kbest(buf);
+			buf.clear();
+			// generate entities based on the latest label
+			for(int beamIdx=0;beamIdx<beam.items.size();beamIdx++) {
+				Prediction prediction = beam.items.get(beamIdx);
+				int curTran = prediction.labels.get(prediction.labels.size()-1);
 				
-			
-			
-		}
-		
-		// when at the end of sentence, judge relation ignoring lastTran
-		int curTran = prediction.labels.get(prediction.labels.size()-1);
-		if((curTran==3 && checkWrongState(prediction)) || curTran==1 || curTran==2) {
-			int latterIdx = prediction.entities.size()-1;
-			Entity latter = prediction.entities.get(latterIdx);
-
-			for(int j=0;j<latterIdx;j++) {
-				Entity former = prediction.entities.get(j);
-				Example relationExample = getExampleFeatures(tokens, tokens.size()-1, true, former, latter, tool, prediction.entities);
-				int transition = nn.giveTheBestChoice(relationExample);
-				prediction.addLabel(transition, -1);
-
-	            // generate relations based on the latest label
-	            curTran = prediction.labels.get(prediction.labels.size()-1);
-	        	if(curTran == 5) { // connect
-					RelationEntity relationEntity = new RelationEntity(Parameters.RELATION, former, latter);
-					prediction.relations.add(relationEntity);
-	        	}
-
-			}
-			
-		}
-		
-		
-		// Prediction to ADESentence
-		ADESentence predicted = new ADESentence();
-		predicted.entities.addAll(prediction.entities);
-		predicted.relaitons.addAll(prediction.relations);
-		
-		return predicted;
-	}
-	
-	public ADESentence decode_old(List<CoreLabel> tokens, DecodeStatistic stat, Tool tool) throws Exception {
-		ADESentence predicted = new ADESentence();
-		
-		List<Entity> tempEntities = new ArrayList<>();
-		/*
-		 * If the transition sequence is 1 0 3 3, we will have a bug when append.
-		 * Add a flag 'newed' to indicate an entity begin(true) or end(false).
-		 */
-		boolean newed = false;
-		int lastTran = -1;
-		int curTran = -1;
-		for(int idx=0;idx<tokens.size();idx++) {
-			// prepare the input for NN
-			Example ex = getExampleFeatures(tokens, idx, false, null, null, tool, null);
-			// get the transition given by NN
-			// other, newChemical, newDisease, append, notConnect, connect  
-			lastTran = curTran;
-			curTran = nn.giveTheBestChoice(ex);
-			stat.total++;
-			
-			// predict the entity based on the transition
-			if((lastTran==0 && curTran==0) || (lastTran==1 && curTran==0) || (lastTran==2 && curTran==0)
-				|| (lastTran==3 && curTran==0) || (lastTran==4 && curTran==0) || (lastTran==5 && curTran==0))
-			{ // no entity, just add a one-length non-entity segment
-				  
-			} else if((lastTran==0 && curTran==1) || (lastTran==1 && curTran==1) || (lastTran==2 && curTran==1)
-				|| (lastTran==3 && curTran==1) || (lastTran==4 && curTran==1) || (lastTran==5 && curTran==1)
-				|| (lastTran==-1 && curTran==1))
-			{ // new chemical
-				CoreLabel current = tokens.get(idx);
-				  Entity chem = new Entity(null, Parameters.CHEMICAL, current.beginPosition(), 
-						  current.word(), null);
-				  chem.start = idx;
-				  chem.end = idx;
-				  tempEntities.add(chem);
-				  newed = true;
-			} else if((lastTran==0 && curTran==2) || (lastTran==1 && curTran==2) || (lastTran==2 && curTran==2)
-				|| (lastTran==3 && curTran==2) || (lastTran==4 && curTran==2) || (lastTran==5 && curTran==2) 
-				|| (lastTran==-1 && curTran==2))
-			{// new disease
-				CoreLabel current = tokens.get(idx);
-				  Entity disease = new Entity(null, Parameters.DISEASE, current.beginPosition(), 
-						  current.word(), null);
-				  disease.start = idx;
-				  disease.end = idx;
-				  tempEntities.add(disease);
-				  newed = true;
-			} else if((lastTran==1 && curTran==3) || (lastTran==2 && curTran==3) || (lastTran==3 && curTran==3))
-			{ // append the current entity
-				if(newed == true) {
-					Entity old = tempEntities.get(tempEntities.size()-1);
+				if(curTran==1) { // new chemical
+					CoreLabel current = tokens.get(idx);
+					  Entity chem = new Entity(null, Parameters.CHEMICAL, current.beginPosition(), 
+							  current.word(), null);
+					  chem.start = idx;
+					  chem.end = idx;
+					  prediction.entities.add(chem);
+				} else if(curTran==2) {// new disease
+					CoreLabel current = tokens.get(idx);
+					  Entity disease = new Entity(null, Parameters.DISEASE, current.beginPosition(), 
+							  current.word(), null);
+					  disease.start = idx;
+					  disease.end = idx;
+					  prediction.entities.add(disease);
+				} else if(curTran==3 && checkWrongState(prediction)) { // append the current entity
+					Entity old = prediction.entities.get(prediction.entities.size()-1);
 					CoreLabel current = tokens.get(idx);
 					int whitespaceToAdd = current.beginPosition()-(old.offset+old.text.length());
 					for(int j=0;j<whitespaceToAdd;j++)
@@ -1331,58 +1221,126 @@ public class NNADE extends Father implements Serializable {
 					old.text += current.word();
 					old.end = idx;
 				}
-				
-			} else if((lastTran==0 && curTran==3) || (lastTran==0 && curTran==4) || (lastTran==0 && curTran==5)
-				|| (lastTran==1 && curTran==4) || (lastTran==1 && curTran==5) || (lastTran==2 && curTran==4) ||
-				(lastTran==2 && curTran==5) || (lastTran==3 && curTran==4) || (lastTran==3 && curTran==5) ||
-				(lastTran==4 && curTran==4) || (lastTran==4 && curTran==5) || (lastTran==5 && curTran==4) ||
-				(lastTran==5 && curTran==5) || (lastTran==4 && curTran==3) || (lastTran==5 && curTran==3)) {
-				/*
-				 * wrong status
-				 * if last=other, current=append, 
-				 * or if current=4 or 5
-				 * or if last = 4 or 5, current = append
-				 */
-				stat.wrong++;
-			} else { // other but not wrong status
-				
 			}
 			
-			// if an entity ends, we should predict the relation between it and all the entities before it.
-			if((lastTran==1 && curTran==1) || (lastTran==1 && curTran==2) || (lastTran==1 && curTran==0)
-				|| (lastTran==2 && curTran==0) || (lastTran==2 && curTran==1) || (lastTran==2 && curTran==2)
-				|| (lastTran==3 && curTran==0) || (lastTran==3 && curTran==1) || (lastTran==3 && curTran==2))
-			{
-				// If the transition sequence is 0 3 0, we will have a bug here without the if statement.
-				if(newed == true) {
-					Entity latter = tempEntities.get(tempEntities.size()-1);
-					for(int j=0;j<tempEntities.size()-1;j++) {
-						Entity former = tempEntities.get(j);
-						Example relationExample = getExampleFeatures(tokens, idx, true, former, latter, tool, tempEntities);
-						lastTran = curTran;
-						curTran = nn.giveTheBestChoice(relationExample);
-						stat.total++;
-						
-						if(curTran == 4) { // not connect
+			// begin to predict relations
+			for(int beamIdx=0;beamIdx<beam.items.size();beamIdx++) {
+				Prediction beamPrediction = beam.items.get(beamIdx);
+				int lastTran = beamPrediction.labels.size()>=2 ? beamPrediction.labels.get(beamPrediction.labels.size()-2) : -1;
+				int curTran = beamPrediction.labels.get(beamPrediction.labels.size()-1);
+				// judge whether to generate relations
+				if((lastTran==1 && curTran==1) || (lastTran==1 && curTran==2) || (lastTran==1 && curTran==0)
+						|| (lastTran==2 && curTran==0) || (lastTran==2 && curTran==1) || (lastTran==2 && curTran==2)
+						|| (lastTran==3 && curTran==0) || (lastTran==3 && curTran==1) || (lastTran==3 && curTran==2)
+				) { 
+					if((lastTran==3 && checkWrongState(beamPrediction)) || lastTran==1 || lastTran==2) {
+						// if curTran 1 or 2, the last entities should not be considered
+						int latterIdx = (curTran==1 || curTran==2) ? beamPrediction.entities.size()-2:beamPrediction.entities.size()-1;
+						Entity latter = beamPrediction.entities.get(latterIdx);
+						List<Prediction> buf1 = new ArrayList<>();
+						buf1.add(beamPrediction);
+						List<Prediction> buf2 = new ArrayList<>();
+						for(int j=0;j<latterIdx;j++) {
+							Entity former = beamPrediction.entities.get(j);
+							if(latter.type.equals(former.type))
+								continue;
+							Example relationExample = getExampleFeatures(tokens, idx, true, former, latter, tool, beamPrediction.entities);
+							double[] scores2 = nn.computeScores(relationExample);
 							
-						} else if(curTran == 5) { // connect
-							RelationEntity relationEntity = new RelationEntity(Parameters.RELATION, former, latter);
-							predicted.relaitons.add(relationEntity);
-						} else {
-							stat.wrong++;
+							for(int k=0;k<buf1.size();k++) {
+						        for (int i = parameters.outputSize-2; i < parameters.outputSize; ++i) {
+						            Prediction prediction = new Prediction();
+						            prediction.copy(buf1.get(k));
+						            prediction.addLabel(i, scores2[i]);
+						            Entity drug = former.type.equals("Chemical") ? former:latter;
+									Entity disease = former.type.equals("Chemical") ? latter:former;
+						            //prediction.currentFeatures = perceptron.featureFunction(tokens, -1, transitionNumber2String(i), drug, disease); 
+									prediction.relationFeatures = perceptron.featureFunction(tokens, -1, transitionNumber2String(i), drug, disease); 
+									prediction.perceptron = perceptron;
+						            buf2.add(prediction);
+						            // generate relations based on the latest label
+						            curTran = prediction.labels.get(prediction.labels.size()-1);
+						        	if(curTran == 5) { // connect
+										RelationEntity relationEntity = new RelationEntity(Parameters.RELATION, former, latter);
+										prediction.relations.add(relationEntity);
+						        	}
+						        }
+						        
+							}
+							buf1.clear();
+							buf1.addAll(buf2);
+							buf2.clear();
 						}
-						
-					}
-				}
-				newed = false;
+						buf.addAll(buf1);
+					} else
+						buf.add(beamPrediction);
+					
+				} else
+					buf.add(beamPrediction);
+				
 			}
 			
-			
+			beam.kbest(buf);
+			buf.clear();
+
 		}
 		
+		// when at the end of sentence, judge relation ignoring lastTran
+		List<Prediction> buf = new ArrayList<>();
+		for(int beamIdx=0;beamIdx<beam.items.size();beamIdx++) {
+			Prediction beamPrediction = beam.items.get(beamIdx);
+			int curTran = beamPrediction.labels.get(beamPrediction.labels.size()-1);
+			if((curTran==3 && checkWrongState(beamPrediction)) || curTran==1 || curTran==2) {
+				int latterIdx = beamPrediction.entities.size()-1;
+				Entity latter = beamPrediction.entities.get(latterIdx);
+				List<Prediction> buf1 = new ArrayList<>();
+				buf1.add(beamPrediction);
+				List<Prediction> buf2 = new ArrayList<>();
+				for(int j=0;j<latterIdx;j++) {
+					Entity former = beamPrediction.entities.get(j);
+					if(latter.type.equals(former.type))
+						continue;
+					Example relationExample = getExampleFeatures(tokens, tokens.size()-1, true, former, latter, tool, beamPrediction.entities);
+					double[] scores2 = nn.computeScores(relationExample);
+					
+					for(int k=0;k<buf1.size();k++) {
+				        for (int i = parameters.outputSize-2; i < parameters.outputSize; ++i) {
+				            Prediction prediction = new Prediction();
+				            prediction.copy(buf1.get(k));
+				            prediction.addLabel(i, scores2[i]);
+				            Entity drug = former.type.equals("Chemical") ? former:latter;
+							Entity disease = former.type.equals("Chemical") ? latter:former;
+				            //prediction.currentFeatures = perceptron.featureFunction(tokens, -1, transitionNumber2String(i), drug, disease); 
+							prediction.relationFeatures = perceptron.featureFunction(tokens, -1, transitionNumber2String(i), drug, disease); 
+							prediction.perceptron = perceptron;
+				            buf2.add(prediction);
+				            // generate relations based on the latest label
+				            curTran = prediction.labels.get(prediction.labels.size()-1);
+				        	if(curTran == 5) { // connect
+								RelationEntity relationEntity = new RelationEntity(Parameters.RELATION, former, latter);
+								prediction.relations.add(relationEntity);
+				        	}
+				        }
+				        
+					}
+					buf1.clear();
+					buf1.addAll(buf2);
+					buf2.clear();
+				}
+				buf.addAll(buf1);
+			} else
+				buf.add(beamPrediction);
+		}
+		beam.kbest(buf);
+		buf.clear();
 		
-		predicted.entities.addAll(tempEntities);
-				
+		
+		// Prediction to ADESentence
+		Prediction best = beam.items.get(0);
+		ADESentence predicted = new ADESentence();
+		predicted.entities.addAll(best.entities);
+		predicted.relaitons.addAll(best.relations);
+		
 		return predicted;
 	}
 	
@@ -1405,7 +1363,7 @@ public class NNADE extends Father implements Serializable {
 		else if(parameters.wordPreprocess==2) {
 			return token.lemma().toLowerCase();
 		} else if(parameters.wordPreprocess==3) {
-			return NNADE.pipe(token.lemma().toLowerCase());
+			return PerceptronNNADE.pipe(token.lemma().toLowerCase());
 		} else {
 			return token.word().toLowerCase();
 		}
@@ -1425,6 +1383,7 @@ public class NNADE extends Father implements Serializable {
 
 	@Override
 	public double[][] getE() {
+		// TODO Auto-generated method stub
 		return E;
 	}
 
@@ -1436,53 +1395,4 @@ public class NNADE extends Father implements Serializable {
 
 }
 
-class DecodeStatistic {
-	public int wrong; // wrong transition
-	public int total; // total transition
-	
-	public int ctPredictEntity = 0;
-	public int ctTrueEntity = 0;
-	public int ctCorrectEntity = 0;
-	public int ctPredictRelation = 0;
-	public int ctTrueRelation = 0;
-	public int ctCorrectRelation = 0;
-	
-	public double getWrongRate() {
-		return wrong*1.0/total;
-	}
-	
-	public double getEntityPrecision() {
-		return Evaluater.getPrecisionV2(ctCorrectEntity, ctPredictEntity);
-	}
-	
-	public double getEntityRecall() {
-		return Evaluater.getRecallV2(ctCorrectEntity, ctTrueEntity);
-	}
-	
-	public double getEntityF1() {
-		return Evaluater.getFMeasure(getEntityPrecision(), getEntityRecall(), 1);
-	}
-	
-	public double getRelationPrecision() {
-		return Evaluater.getPrecisionV2(ctCorrectRelation, ctPredictRelation);
-	}
-	
-	public double getRelationRecall() {
-		return Evaluater.getRecallV2(ctCorrectRelation, ctTrueRelation);
-	}
-	
-	public double getRelationF1() {
-		return Evaluater.getFMeasure(getRelationPrecision(), getRelationRecall(), 1);
-	}
-}
 
-class BestPerformance {
-	public double pEntity = -1;
-	public double rEntity= -1;
-	public double f1Entity= -1;
-	public double pRelation= -1;
-	public double rRelation= -1;
-	public double f1Relation= -1;
-	
-	
-}
