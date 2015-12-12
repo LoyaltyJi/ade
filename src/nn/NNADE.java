@@ -51,7 +51,8 @@ public class NNADE extends Father implements Serializable {
 	 * 
 	 */
 	private static final long serialVersionUID = 6814631308712316743L;
-	public NN nn;
+	//public NN nn;
+	public NNSimple nn;
 	public Parameters parameters;
 	// dictionary
 	public List<String> knownWords;
@@ -424,7 +425,8 @@ public class NNADE extends Father implements Serializable {
 	    }
 		
 		// new a NN and initialize its weight
-		nn  = new NN(parameters, this, preComputed, exampleEntity.get(0));
+		//nn  = new NN(parameters, this, preComputed, exampleEntity.get(0));
+	    nn  = new NNSimple(parameters, this, preComputed, exampleEntity.get(0));
 		nn.debug = debug;
 		
 		// train iteration
@@ -453,7 +455,8 @@ public class NNADE extends Father implements Serializable {
 			if(debug)
 				System.out.println("batch size: "+examples.size());
 			
-			GradientKeeper keeper = nn.process(examples, null);
+			//GradientKeeper keeper = nn.process(examples, null);
+			GradientKeeper1 keeper = nn.process(examples, null);
 			
 			//nn.checkGradients(keeper, examples);
 			nn.updateWeights(keeper);
@@ -530,7 +533,7 @@ public class NNADE extends Father implements Serializable {
           best.pRelation = pRelation;
           best.rRelation = rRelation;
           best.f1Relation = f1Relation;
-          ObjectSerializer.writeObjectToFile(this, modelFile);
+          //ObjectSerializer.writeObjectToFile(this, modelFile);
         }
         
 	}

@@ -94,7 +94,7 @@ public class Parameters implements Serializable{
 	  
 	  public int actFuncOfOutput = 1; // 1-Softmax; 
 	  
-	  public int actFuncOfHidden = 1; // 1:cube
+	  public int actFuncOfHidden = 1; // 1:cube 2:tanh 3:relu
 		
 	  public int hiddenLevel = 1;
 	  public int hiddenSize = 200;

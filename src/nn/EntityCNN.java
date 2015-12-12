@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
+import cn.fox.math.Function;
 import gnu.trove.TIntArrayList;
 
 
@@ -15,7 +16,7 @@ public class EntityCNN implements Serializable {
 	public Parameters parameters;
 	
 	public Father nnade;
-	public NN nn;
+	
 	
 	public double[][] filterW;
 	public double[] filterB;
@@ -26,10 +27,10 @@ public class EntityCNN implements Serializable {
 	
 	public boolean debug;
 	
-	public EntityCNN(Parameters parameters, Father nnade, NN nn, boolean debug) {
+	public EntityCNN(Parameters parameters, Father nnade, boolean debug) {
 		this.parameters = parameters;
 		this.nnade = nnade;
-		this.nn = nn;
+		
 		this.debug = debug;
 		
 		Random random = new Random(System.currentTimeMillis());
@@ -81,7 +82,8 @@ public class EntityCNN implements Serializable {
 			
 			for(int j=0;j<parameters.entityDimension;j++) {
 				S[k][j] += filterB[j];  // W*Z+B
-				S[k][j] = Util.sigmoid(S[k][j]); // activation
+				//S[k][j] = Function.sigmoid(S[k][j]); // activation
+				S[k][j] = Function.tanh(S[k][j]); 
 			}
 			
 			
@@ -145,7 +147,8 @@ public class EntityCNN implements Serializable {
 				emb = nnade.getE()[embId];
 				
 				for(int j=0;j<gradS[0].length;j++) {
-					double delta2 = gradS[k][j]*S[k][j]*(1-S[k][j]);
+					//double delta2 = gradS[k][j]*Function.deriSigmoid(S[k][j]);
+					double delta2 = gradS[k][j]*Function.deriTanh(S[k][j]);
 					for(int m=0;m<parameters.embeddingSize;m++) {
 						keeper.gradW[j][offset+m] += delta2*emb[m];
 						if(parameters.bEmbeddingFineTune)
@@ -211,6 +214,14 @@ class EntityCNNGradientKeeper {
 	
 	// initialize gradient matrixes, their dimensions are identical to the corresponding matrixes.
 	public EntityCNNGradientKeeper(Parameters parameters, EntityCNN cnn, GradientKeeper gk) {
+		gradW = new double[cnn.filterW.length][cnn.filterW[0].length];
+		gradB = new double[cnn.filterB.length];
+		if(parameters.bEmbeddingFineTune)
+			gradE = gk.gradE;
+			
+	}
+	
+	public EntityCNNGradientKeeper(Parameters parameters, EntityCNN cnn, GradientKeeper1 gk) {
 		gradW = new double[cnn.filterW.length][cnn.filterW[0].length];
 		gradB = new double[cnn.filterB.length];
 		if(parameters.bEmbeddingFineTune)
