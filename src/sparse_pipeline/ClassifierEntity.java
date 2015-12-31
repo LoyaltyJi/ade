@@ -107,50 +107,70 @@ public class ClassifierEntity extends Father implements Serializable {
 		tool.humando = humando;
 		
 		List<BestPerformance> bestAll = new ArrayList<>();
-		for(int i=0;i<groups.size();i++) {
-			Set<String> group = groups.get(i);
+		for(int i=0;i<groups.size();i++) { // for each fold, i as test, i-1 as dev, other as train
+			Set<String> groupTest = groups.get(i);
+			Set<String> groupDev = groups.get((i+1)%groups.size());
+			
 			List<Abstract> trainAb = new ArrayList<>();
+			List<Abstract> devAb = new ArrayList<>();
 			List<Abstract> testAb = new ArrayList<>();
 			for(File abstractFile:fAbstractDir.listFiles()) {
 				Abstract ab = (Abstract)ObjectSerializer.readObjectFromFile(abstractFile.getAbsolutePath());
-				if(group.contains(ab.id)) {
+				if(groupTest.contains(ab.id)) {
 					// test abstract
 					testAb.add(ab);
+				} else if(groupDev.contains(ab.id)) {
+					// dev abstract
+					devAb.add(ab);
 				} else {
 					// train abstract
 					trainAb.add(ab);
 				}
 				
-
 			}
 			
 			ClassifierEntity classifier = new ClassifierEntity(parameters);
 			
 			System.out.println(Parameters.SEPARATOR+" group "+i);
-			BestPerformance best = classifier.trainAndTest(trainAb, testAb,modelFile+i, tool, debug);
-			bestAll.add(best);
+			BestPerformance best = classifier.trainAndTest(trainAb, devAb, testAb,modelFile+i, 
+					tool, debug);
 			
+			bestAll.add(best);
 		}
 		
-		// macro performance
-		double macroP_Entity = 0;
-		double macroR_Entity = 0;
-		double macroF1_Entity = 0;
-		double fold = bestAll.size();
+		// for dev, use marco average scores of their best performance
+		double pDev = 0;
+		double rDev = 0;
+		double f1Dev = 0;
 		for(BestPerformance best:bestAll) {
-			macroP_Entity += best.pEntity/fold; 
-			macroR_Entity += best.rEntity/fold;
+			pDev += best.dev_pEntity/bestAll.size(); 
+			rDev += best.dev_rEntity/bestAll.size();
 		}
-		macroF1_Entity = Evaluater.getFMeasure(macroP_Entity, macroR_Entity, 1);
+		f1Dev = Evaluater.getFMeasure(pDev, rDev, 1);
 		
-		System.out.println("macro entity precision\t"+macroP_Entity);
-        System.out.println("macro entity recall\t"+macroR_Entity);
-        System.out.println("macro entity f1\t"+macroF1_Entity);
+		System.out.println("dev entity precision\t"+pDev);
+        System.out.println("dev entity recall\t"+rDev);
+        System.out.println("dev entity f1\t"+f1Dev);
+        
+        // for test
+        double pTest = 0;
+		double rTest = 0;
+		double f1Test = 0;
+		for(BestPerformance best:bestAll) {
+			pTest += best.test_pEntity/bestAll.size(); 
+			rTest += best.test_rEntity/bestAll.size();
+		}
+		f1Test = Evaluater.getFMeasure(pTest, rTest, 1);
+		
+		System.out.println("test entity precision\t"+pTest);
+        System.out.println("test entity recall\t"+rTest);
+        System.out.println("test entity f1\t"+f1Test);
+
 
 	}
 	
-	public BestPerformance trainAndTest(List<Abstract> trainAbs, List<Abstract> testAbs, String modelFile, 
-			Tool tool, boolean debug) 
+	public BestPerformance trainAndTest(List<Abstract> trainAbs, List<Abstract> devAbs, List<Abstract> testAbs, 
+			String modelFile, Tool tool, boolean debug) 
 		throws Exception {
 		
 	    
@@ -182,22 +202,23 @@ public class ClassifierEntity extends Father implements Serializable {
 			
 			
 			if (iter>0 && iter % parameters.evalPerIter == 0) {
-				evaluate(tool, testAbs, modelFile, best);
+				evaluate(tool, devAbs, testAbs, modelFile, best);
 			}			
 		}
 		
-		evaluate(tool, testAbs, modelFile, best);
+		evaluate(tool, devAbs, testAbs, modelFile, best);
 		
 		return best;
 	}
 	
-	public void evaluate(Tool tool, List<Abstract> testAbs, String modelFile, BestPerformance best)
+	public void evaluate(Tool tool, List<Abstract> devAbs, List<Abstract> testAbs, String modelFile, 
+			BestPerformance best)
 			throws Exception {
 		
-
+		// evaluate on dev firstly
         DecodeStatistic stat = new DecodeStatistic();
-        for(Abstract testAb:testAbs) {
-        	for(ADESentence gold:testAb.sentences) {
+        for(Abstract devAb:devAbs) {
+        	for(ADESentence gold:devAb.sentences) {
         		List<CoreLabel> tokens = prepareNLPInfo(tool, gold);
         		ADESentence predicted = null;
         		predicted = decode(tokens, tool);
@@ -213,22 +234,54 @@ public class ClassifierEntity extends Father implements Serializable {
         }
         
         System.out.println(Parameters.SEPARATOR);
-        System.out.println("transiton wrong rate "+stat.getWrongRate());
-        double pEntity = stat.getEntityPrecision();
-        System.out.println("entity precision\t"+pEntity);
-        double rEntity = stat.getEntityRecall();
-        System.out.println("entity recall\t"+rEntity);
-        double f1Entity = stat.getEntityF1();
-        System.out.println("entity f1\t"+f1Entity);
-        System.out.println(Parameters.SEPARATOR);
+        double dev_pEntity = stat.getEntityPrecision();
+        System.out.println("dev entity precision\t"+dev_pEntity);
+        double dev_rEntity = stat.getEntityRecall();
+        System.out.println("dev entity recall\t"+dev_rEntity);
+        double dev_f1Entity = stat.getEntityF1();
+        System.out.println("dev entity f1\t"+dev_f1Entity);
+        
 
         	
-        if ((f1Entity > best.f1Entity)) {
+        if ((dev_f1Entity > best.dev_f1Entity)) {
           System.out.printf("Current Exceeds the best! Saving model file %s\n", modelFile);
-          best.pEntity = pEntity;
-          best.rEntity = rEntity;
-          best.f1Entity = f1Entity;
+          best.dev_pEntity = dev_pEntity;
+          best.dev_rEntity = dev_rEntity;
+          best.dev_f1Entity = dev_f1Entity;
           ObjectSerializer.writeObjectToFile(this, modelFile);
+          
+          // the current outperforms the prior on dev, so we evaluate on test and record the performance
+          DecodeStatistic stat2 = new DecodeStatistic();
+          for(Abstract testAb:testAbs) {
+          	for(ADESentence gold:testAb.sentences) {
+          		List<CoreLabel> tokens = prepareNLPInfo(tool, gold);
+          		ADESentence predicted = null;
+          		predicted = decode(tokens, tool);
+          		
+          		stat2.ctPredictEntity += predicted.entities.size();
+          		stat2.ctTrueEntity += gold.entities.size();
+          		for(Entity preEntity:predicted.entities) {
+          			if(gold.entities.contains(preEntity))
+          				stat2.ctCorrectEntity++;
+      			}
+          		
+          	}
+          }
+          
+          
+          double test_pEntity = stat2.getEntityPrecision();
+          System.out.println("test entity precision\t"+test_pEntity);
+          double test_rEntity = stat2.getEntityRecall();
+          System.out.println("test entity recall\t"+test_rEntity);
+          double test_f1Entity = stat2.getEntityF1();
+          System.out.println("test entity f1\t"+test_f1Entity);
+          System.out.println(Parameters.SEPARATOR);
+          // update the best test performance
+          best.test_pEntity = test_pEntity;
+          best.test_rEntity = test_rEntity;
+          best.test_f1Entity = test_f1Entity;
+        } else {
+        	System.out.println(Parameters.SEPARATOR);
         }
         
 	}

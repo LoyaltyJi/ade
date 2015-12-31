@@ -9,13 +9,13 @@ import cn.fox.math.Function;
 import gnu.trove.TIntArrayList;
 
 
-public class EntityCNN implements Serializable {
+public class CombineEntityCNN implements Serializable {
 
 	private static final long serialVersionUID = -6471262603387658363L;
 	
-	public Parameters parameters;
+	public CombineParameters parameters;
 	
-	public Father nnade;
+	public Combine nnade;
 	
 	
 	public double[][] filterW;
@@ -27,7 +27,7 @@ public class EntityCNN implements Serializable {
 	
 	public boolean debug;
 	
-	public EntityCNN(Parameters parameters, Father nnade, boolean debug) {
+	public CombineEntityCNN(CombineParameters parameters, Combine nnade, boolean debug) {
 		this.parameters = parameters;
 		this.nnade = nnade;
 		
@@ -68,7 +68,7 @@ public class EntityCNN implements Serializable {
 				if(wordIdx<=entityIdx.size()-1) {
 					emb = nnade.getE()[entityIdx.get(wordIdx)];
 				} else {
-					emb = nnade.getE()[nnade.getPaddingID()];
+					emb = nnade.getE()[nnade.getPaddingID2()]; // sentence is less than window
 				}
 				
 				for(int j=0;j<parameters.entityDimension;j++) {
@@ -142,7 +142,7 @@ public class EntityCNN implements Serializable {
 				if(wordIdx<=entityIdx.size()-1) {
 					embId = entityIdx.get(wordIdx);
 				} else {
-					embId = nnade.getPaddingID();
+					embId = nnade.getPaddingID2(); // sentence is less than window
 				}
 				emb = nnade.getE()[embId];
 				
@@ -152,7 +152,8 @@ public class EntityCNN implements Serializable {
 					for(int m=0;m<parameters.embeddingSize;m++) {
 						keeper.gradW[j][offset+m] += delta2*emb[m];	
 					}
-					if(parameters.bEmbeddingFineTune) {
+					if(embId < nnade.getKnownWords1().size() || 
+							embId >= nnade.getKnownWords1().size()+nnade.getKnownWords2().size()) {
 						for(int m=0;m<parameters.embeddingSize;m++)
 							keeper.gradE[embId][m] += delta2*filterW[j][offset+m];
 					} 

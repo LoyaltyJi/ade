@@ -134,11 +134,455 @@ public class Util {
 			
 			//prepareTSNE(tool, parameters, trainAb);
 			//kmeansWord(tool, parameters, trainAb);
-			prepareEntityTSNE(tool, parameters, trainAb);
+			//prepareEntityTSNE(tool, parameters, trainAb);
+			prepare1orMoreWordEntity(tool, parameters, trainAb);
+			break;
 		}
 		
 		//findClosestWord("neurotoxicity");
 	}
+	
+	static void prepare1orMoreWordEntity(Tool tool, Parameters parameters, List<Abstract> abs) throws Exception {
+		NNADE_word nnade = (NNADE_word)ObjectSerializer.readObjectFromFile("E:\\ade\\nnade.ser0");
+		
+		ArrayList<String> results = new ArrayList<String>();
+		int max = 20;
+		HashSet<String> triggers = new HashSet<String>(Arrays.asList(new String[]
+		{"induced",}));
+		nnade.nn.preCompute();
+		
+		OutputStreamWriter oswVector = new OutputStreamWriter(new FileOutputStream("D:/tools/T-SNE-Java-master/tsne-demos/test_vector.txt"), "utf-8");
+		OutputStreamWriter oswWord = new OutputStreamWriter(new FileOutputStream("D:/tools/T-SNE-Java-master/tsne-demos/test_word.txt"), "utf-8");
+		DecimalFormat df=new DecimalFormat("0.000000"); 
+		
+OUT:    for(Abstract ab:abs) {
+        	for(ADESentence gold:ab.sentences) {
+        		List<CoreLabel> tokens = nnade.prepareNLPInfo(tool, gold);
+        		        		
+RELATION:        for(RelationEntity relation:gold.relaitons) {
+        			Entity former = relation.getFormer();
+        			for(int i=0;i<tokens.size();i++) {
+        				CoreLabel token = tokens.get(i);
+        				if(former.offset==token.beginPosition())
+        					former.start = i;
+        				if(former.offsetEnd==token.endPosition())
+        					former.end = i;
+        			}
+        			Entity latter = relation.getLatter();
+        			for(int i=0;i<tokens.size();i++) {
+        				CoreLabel token = tokens.get(i);
+        				if(latter.offset==token.beginPosition())
+        					latter.start = i;
+        				if(latter.offsetEnd==token.endPosition())
+        					latter.end = i;
+        			}
+        			
+        			if(latter.start-former.end > 2)
+        				continue;
+        			
+
+        			int triggerPosition = -1;        			
+        			for(int i=former.end+1;i<=latter.start-1;i++) {
+        				if(triggers.contains(tokens.get(i).word().toLowerCase())) {
+        					triggerPosition = i;
+        					break;
+        				}
+        			}
+        			
+        			if(triggerPosition == -1)
+        				continue RELATION;
+        			
+        			if(former.end-former.start>=2)
+						continue RELATION;
+        			
+        			if(latter.end-latter.start>=2)
+						continue RELATION;
+        			
+        			if(former.start==former.end) {
+        				if(results.contains(tokens.get(former.start).word().toLowerCase()))
+        					continue RELATION;
+        			} else {
+        				if(results.contains(former.text.toLowerCase()))
+        					continue RELATION;	
+        			}
+        			
+        			if(latter.start==latter.end) {
+        				if(results.contains(tokens.get(latter.start).word().toLowerCase()))
+        					continue RELATION;
+        			} else {
+        				if(results.contains(latter.text.toLowerCase()))
+        					continue RELATION;	
+        			}
+        			
+        			for(int i=former.start; i<=former.end;i++) {
+						String word = tokens.get(i).word().toLowerCase();
+						int index = nnade.wordIDs.get(word);
+    					if(index == 0 || index == 1) {
+    						continue RELATION;
+    					}
+					}
+        			
+        			for(int i=latter.start; i<=latter.end;i++) {
+						String word = tokens.get(i).word().toLowerCase();
+						int index = nnade.wordIDs.get(word);
+    					if(index == 0 || index == 1) {
+    						continue RELATION;
+    					}
+					}
+        			
+        			System.out.println(relation);
+        				
+        			String trigger = tokens.get(triggerPosition).word().toLowerCase();
+        			if(!results.contains(trigger)) {
+        				results.add(trigger);
+        				int index = nnade.wordIDs.get(trigger);
+        				oswWord.write(trigger+"_#"+"\n");
+        				for(int j=0;j<nnade.E[0].length;j++) {
+							double temp = nnade.E[index][j];
+							if(j==nnade.E[0].length-1) {
+								oswVector.write(df.format(temp)+"\n");
+							} else
+								oswVector.write(df.format(temp)+" ");
+        						
+        				}
+        			}
+        				
+        			{
+        				TIntArrayList entityIdx = new TIntArrayList();
+        				for(int i=former.start; i<=former.end;i++) {
+        					String word = tokens.get(i).word().toLowerCase();
+        					int index = nnade.wordIDs.get(word);
+            				entityIdx.add(index);
+        				}
+	        			results.add(former.text.toLowerCase());
+	        			oswWord.write(former.text.replace(' ', '_').toLowerCase()+"_"+former.type.substring(0,1)+"\n");
+            			double[] embedding = nnade.nn.entityCNN.forward(entityIdx).emb;	
+    					for(int j=0;j<embedding.length;j++) {
+    						double temp = embedding[j];
+    						if(j==embedding.length-1) {
+    							oswVector.write(df.format(temp)+"\n");
+    						} else
+    							oswVector.write(df.format(temp)+" ");
+    					}
+        			}
+        				
+        			{
+        				results.add(latter.text.toLowerCase());
+	        			TIntArrayList entityIdx = new TIntArrayList();
+	        			for(int i=latter.start; i<=latter.end;i++) {
+	        				String word = tokens.get(i).word().toLowerCase();
+	        				int index = nnade.wordIDs.get(word);
+	            			entityIdx.add(index);
+	        			}
+	        			oswWord.write(latter.text.replace(' ', '_').toLowerCase()+"_"+latter.type.substring(0,1)+"\n");
+            			double[] embedding = nnade.nn.entityCNN.forward(entityIdx).emb;	
+    					for(int j=0;j<embedding.length;j++) {
+    						double temp = embedding[j];
+    						if(j==embedding.length-1) {
+    							oswVector.write(df.format(temp)+"\n");
+    						} else
+    							oswVector.write(df.format(temp)+" ");
+    						
+    					}
+        					
+        			}
+        						
+
+    				if(results.size()>max)
+    					break OUT;
+        			
+        			
+        		}
+        		
+        		
+        		
+        	}
+        }
+		
+		
+		oswVector.close();
+		oswWord.close();
+	}
+
+	
+		static void prepareEntityTSNE(Tool tool, Parameters parameters, List<Abstract> abs) throws Exception {
+			NNADE_word nnade = (NNADE_word)ObjectSerializer.readObjectFromFile("E:\\ade\\nnade.ser0");
+			/*HashSet<String> results = new HashSet<String>(Arrays.asList(new String[]
+			{"induce", "associate", "relate", "male", "female", "it", "describe", "report"}));
+			*/
+			
+			ArrayList<String> results = new ArrayList<String>();
+			//ArrayList<String> types = new ArrayList<String>();
+			int max = 10;
+			HashSet<String> triggers = new HashSet<String>(Arrays.asList(new String[]
+			{"induce",/*"associate", "relate", "cause", "develop", "produce", "after", "follow", "result"*/}));
+			nnade.nn.preCompute();
+			
+			OutputStreamWriter oswVector = new OutputStreamWriter(new FileOutputStream("D:/tools/T-SNE-Java-master/tsne-demos/test_entity_vector.txt"), "utf-8");
+			OutputStreamWriter oswWord = new OutputStreamWriter(new FileOutputStream("D:/tools/T-SNE-Java-master/tsne-demos/test_entity_word.txt"), "utf-8");
+			DecimalFormat df=new DecimalFormat("0.000000"); 
+			
+	OUT:    for(Abstract ab:abs) {
+	        	for(ADESentence gold:ab.sentences) {
+	        		List<CoreLabel> tokens = nnade.prepareNLPInfo(tool, gold);
+	        		//ADESentence predicted = null;
+	        		//predicted = nnade.decode(tokens, tool);
+	        		
+	        		for(RelationEntity relation:gold.relaitons) {
+	        			Entity former = relation.getFormer();
+	        			for(int i=0;i<tokens.size();i++) {
+	        				CoreLabel token = tokens.get(i);
+	        				if(former.offset==token.beginPosition())
+	        					former.start = i;
+	        				if(former.offsetEnd==token.endPosition())
+	        					former.end = i;
+	        			}
+	        			Entity latter = relation.getLatter();
+	        			for(int i=0;i<tokens.size();i++) {
+	        				CoreLabel token = tokens.get(i);
+	        				if(latter.offset==token.beginPosition())
+	        					latter.start = i;
+	        				if(latter.offsetEnd==token.endPosition())
+	        					latter.end = i;
+	        			}
+	        			if(former.start==former.end || latter.start==latter.end)
+	        				continue;
+	        			
+	        			if(latter.start-former.end > 2)
+	        				continue;
+	        			
+	        			/*if(former.end-former.start>1 || latter.end-latter.start>1)
+	        				continue;*/
+	        			
+	        			int triggerPosition = -1;        			
+	        			for(int i=former.end+1;i<=latter.start-1;i++) {
+	        				if(triggers.contains(tokens.get(i).lemma().toLowerCase())) {
+	        					triggerPosition = i;
+	        					break;
+	        				}
+	        			}
+	        			
+	        			if(triggerPosition !=-1) {
+	        				String trigger = tokens.get(triggerPosition).lemma().toLowerCase();
+	        				if(!results.contains(trigger)) {
+	        					results.add(trigger);
+	        					//types.add("#");
+	        					int index = nnade.wordIDs.get(trigger);
+	        					if(index == 0 || index == 1) {
+	        						System.out.println(trigger);
+	        					}
+	        					oswWord.write(trigger+"_#"+"\n");
+	        					
+	        					for(int j=0;j<nnade.E[0].length;j++) {
+	        						double temp = nnade.E[index][j];
+	        						if(j==nnade.E[0].length-1) {
+	        							oswVector.write(df.format(temp)+"\n");
+	        						} else
+	        							oswVector.write(df.format(temp)+" ");
+	        						
+	        					}
+	        				}
+	        				
+	        				if(former.start==former.end) {
+	        					String word = tokens.get(former.start).lemma().toLowerCase();
+	        					if(!results.contains(word)) {
+	        						results.add(word);
+
+	        						int index = nnade.wordIDs.get(word);
+	            					if(index == 0 || index == 1) {
+	            						System.out.println(word);
+	            					}
+	            					oswWord.write(word+"_"+former.type.substring(0,1)+"\n");
+	            					
+	            					for(int j=0;j<nnade.E[0].length;j++) {
+	            						double temp = nnade.E[index][j];
+	            						if(j==nnade.E[0].length-1) {
+	            							oswVector.write(df.format(temp)+"\n");
+	            						} else
+	            							oswVector.write(df.format(temp)+" ");
+	            						
+	            					}
+	        					}
+	        				} else {
+	        					if(!results.contains(former.text.toLowerCase())) {
+	        						results.add(former.text.toLowerCase());
+	        						
+		        					TIntArrayList entityIdx = new TIntArrayList();
+		        					for(int i=former.start; i<=former.end;i++) {
+		        						String word = tokens.get(i).lemma().toLowerCase();
+		        						int index = nnade.wordIDs.get(word);
+		            					if(index == 0 || index == 1) {
+		            						System.out.println(word);
+		            					}
+		            					entityIdx.add(index);
+		        					}
+		        					oswWord.write(former.text.replace(' ', '_').toLowerCase()+"_"+former.type.substring(0,1)+"\n");
+	            					
+	            					double[] embedding = nnade.nn.entityCNN.forward(entityIdx).emb;
+	            					
+	            					for(int j=0;j<embedding.length;j++) {
+	            						double temp = embedding[j];
+	            						if(j==embedding.length-1) {
+	            							oswVector.write(df.format(temp)+"\n");
+	            						} else
+	            							oswVector.write(df.format(temp)+" ");
+	            						
+	            					}
+	        					}
+	        				}
+	        				
+	        				if(latter.start==latter.end) {
+	        					String word = tokens.get(latter.start).lemma().toLowerCase();
+	        					if(!results.contains(word)) {
+	        						results.add(word);
+
+	        						int index = nnade.wordIDs.get(word);
+	            					if(index == 0 || index == 1) {
+	            						System.out.println(word);
+	            					}
+	            					oswWord.write(word+"_"+latter.type.substring(0,1)+"\n");
+	            					
+	            					for(int j=0;j<nnade.E[0].length;j++) {
+	            						double temp = nnade.E[index][j];
+	            						if(j==nnade.E[0].length-1) {
+	            							oswVector.write(df.format(temp)+"\n");
+	            						} else
+	            							oswVector.write(df.format(temp)+" ");
+	            						
+	            					}
+	        					}
+	        				} else {
+	        					if(!results.contains(latter.text.toLowerCase())) {
+	        						results.add(latter.text.toLowerCase());
+		        					TIntArrayList entityIdx = new TIntArrayList();
+		        					for(int i=latter.start; i<=latter.end;i++) {
+		        						String word = tokens.get(i).lemma().toLowerCase();
+		        						int index = nnade.wordIDs.get(word);
+		            					if(index == 0 || index == 1) {
+		            						System.out.println(word);
+		            					}
+		            					entityIdx.add(index);
+		        					}
+		        					
+		        					oswWord.write(latter.text.replace(' ', '_').toLowerCase()+"_"+latter.type.substring(0,1)+"\n");
+	            					
+	            					double[] embedding = nnade.nn.entityCNN.forward(entityIdx).emb;
+	            					
+	            					for(int j=0;j<embedding.length;j++) {
+	            						double temp = embedding[j];
+	            						if(j==embedding.length-1) {
+	            							oswVector.write(df.format(temp)+"\n");
+	            						} else
+	            							oswVector.write(df.format(temp)+" ");
+	            						
+	            					}
+	        					}
+	        				}
+	        						
+
+	        				if(results.size()>max)
+	        					break OUT;
+	        			}
+	        			
+	        		}
+	        		
+	        		
+	        		
+	        	}
+	        }
+			
+			
+			oswVector.close();
+			oswWord.close();
+			
+		}
+		
+		
+		static void prepareTSNE(Tool tool, Parameters parameters, List<Abstract> abs) throws Exception {
+			NNADE_word nnade = (NNADE_word)ObjectSerializer.readObjectFromFile("E:\\ade\\nnade.ser0");
+			/*HashSet<String> results = new HashSet<String>(Arrays.asList(new String[]
+			{"induce", "associate", "relate", "male", "female", "it", "describe", "report"}));
+			*/
+			
+			ArrayList<String> results = new ArrayList<String>();
+			ArrayList<String> types = new ArrayList<String>();
+			int max = 10;
+			HashSet<String> triggers = new HashSet<String>(Arrays.asList(new String[]
+			{"induce",/*"associate", "relate", "cause", "develop", "produce", "after", "follow", "result"*/}));
+			nnade.nn.preCompute();
+
+	OUT:    for(Abstract ab:abs) {
+	        	for(ADESentence gold:ab.sentences) {
+	        		List<CoreLabel> tokens = nnade.prepareNLPInfo(tool, gold);
+	        		ADESentence predicted = null;
+	        		predicted = nnade.decode(tokens, tool);
+	        		
+	        		for(RelationEntity relation:predicted.relaitons) {
+	        			Entity former = relation.getFormer();
+	        			if(former.start!=former.end)
+	        				continue;
+	        			Entity latter = relation.getLatter();
+	        			if(latter.start!=latter.end)
+	        				continue;
+	        			
+	        			if(latter.start-former.end > 2)
+	        				continue;
+	        			
+	        			for(int i=former.end+1;i<=latter.start-1;i++) {
+	        				if(triggers.contains(tokens.get(i).lemma().toLowerCase())) {
+	        					if(!results.contains(tokens.get(former.start).lemma().toLowerCase())) {
+	        						results.add(tokens.get(former.start).lemma().toLowerCase());
+	        						types.add(former.type.substring(0,1));
+	        					}
+	        					if(!results.contains(tokens.get(latter.start).lemma().toLowerCase())) {
+	        						results.add(tokens.get(latter.start).lemma().toLowerCase());
+	        						types.add(latter.type.substring(0,1));
+	        					}
+	        					if(!results.contains(tokens.get(i).lemma().toLowerCase())) {
+	        						results.add(tokens.get(i).lemma().toLowerCase());
+	        						types.add("#");
+	        					}
+	        					
+	        					if(results.size()>=max)
+	        						break OUT;
+	        				}
+	        			}
+	        		}
+	        		
+	        		
+	        		
+	        	}
+	        }
+			
+			
+			
+			OutputStreamWriter oswVector = new OutputStreamWriter(new FileOutputStream("D:/tools/T-SNE-Java-master/tsne-demos/test_vector.txt"), "utf-8");
+			OutputStreamWriter oswWord = new OutputStreamWriter(new FileOutputStream("D:/tools/T-SNE-Java-master/tsne-demos/test_word.txt"), "utf-8");
+			//OutputStreamWriter oswType = new OutputStreamWriter(new FileOutputStream("D:/tools/T-SNE-Java-master/tsne-demos/test_type.txt"), "utf-8");
+			DecimalFormat df=new DecimalFormat("0.000000"); 
+			for(int i=0;i<results.size();i++) {
+				String word = results.get(i);
+				int index = nnade.wordIDs.get(word);
+				if(index == 0 || index == 1) {
+					System.out.println(word);
+					continue;
+				}
+				oswWord.write(word+"_"+types.get(i)+"\n");
+				//oswType.write(types.get(i)+"\n");
+				for(int j=0;j<nnade.E[0].length;j++) {
+					double temp = nnade.E[index][j];
+					if(j==nnade.E[0].length-1) {
+						oswVector.write(df.format(temp)+"\n");
+					} else
+						oswVector.write(df.format(temp)+" ");
+					
+				}
+				
+			}
+			oswVector.close();
+			oswWord.close();
+			//oswType.close();
+		}
 	
 	static void findClosestWord(String w) throws Exception {
 		NNADE nnade = (NNADE)ObjectSerializer.readObjectFromFile("E:\\ade\\nnade.ser0");
@@ -330,284 +774,6 @@ public class Util {
 			}
 			System.out.println();
 		}
-	}
-	
-	static void prepareEntityTSNE(Tool tool, Parameters parameters, List<Abstract> abs) throws Exception {
-		NNADE nnade = (NNADE)ObjectSerializer.readObjectFromFile("E:\\ade\\nnade.ser0");
-		/*HashSet<String> results = new HashSet<String>(Arrays.asList(new String[]
-		{"induce", "associate", "relate", "male", "female", "it", "describe", "report"}));
-		*/
-		
-		ArrayList<String> results = new ArrayList<String>();
-		//ArrayList<String> types = new ArrayList<String>();
-		int max = 10;
-		HashSet<String> triggers = new HashSet<String>(Arrays.asList(new String[]
-		{"induce",/*"associate", "relate", "cause", "develop", "produce", "after", "follow", "result"*/}));
-		nnade.nn.preCompute();
-		
-		OutputStreamWriter oswVector = new OutputStreamWriter(new FileOutputStream("D:/tools/T-SNE-Java-master/tsne-demos/test_entity_vector.txt"), "utf-8");
-		OutputStreamWriter oswWord = new OutputStreamWriter(new FileOutputStream("D:/tools/T-SNE-Java-master/tsne-demos/test_entity_word.txt"), "utf-8");
-		DecimalFormat df=new DecimalFormat("0.000000"); 
-		
-OUT:    for(Abstract ab:abs) {
-        	for(ADESentence gold:ab.sentences) {
-        		List<CoreLabel> tokens = nnade.prepareNLPInfo(tool, gold);
-        		//ADESentence predicted = null;
-        		//predicted = nnade.decode(tokens, tool);
-        		
-        		for(RelationEntity relation:gold.relaitons) {
-        			Entity former = relation.getFormer();
-        			for(int i=0;i<tokens.size();i++) {
-        				CoreLabel token = tokens.get(i);
-        				if(former.offset==token.beginPosition())
-        					former.start = i;
-        				if(former.offsetEnd==token.endPosition())
-        					former.end = i;
-        			}
-        			Entity latter = relation.getLatter();
-        			for(int i=0;i<tokens.size();i++) {
-        				CoreLabel token = tokens.get(i);
-        				if(latter.offset==token.beginPosition())
-        					latter.start = i;
-        				if(latter.offsetEnd==token.endPosition())
-        					latter.end = i;
-        			}
-        			if(former.start==former.end || latter.start==latter.end)
-        				continue;
-        			
-        			if(latter.start-former.end > 2)
-        				continue;
-        			
-        			/*if(former.end-former.start>1 || latter.end-latter.start>1)
-        				continue;*/
-        			
-        			int triggerPosition = -1;        			
-        			for(int i=former.end+1;i<=latter.start-1;i++) {
-        				if(triggers.contains(tokens.get(i).lemma().toLowerCase())) {
-        					triggerPosition = i;
-        					break;
-        				}
-        			}
-        			
-        			if(triggerPosition !=-1) {
-        				String trigger = tokens.get(triggerPosition).lemma().toLowerCase();
-        				if(!results.contains(trigger)) {
-        					results.add(trigger);
-        					//types.add("#");
-        					int index = nnade.wordIDs.get(trigger);
-        					if(index == 0 || index == 1) {
-        						System.out.println(trigger);
-        					}
-        					oswWord.write(trigger+"_#"+"\n");
-        					
-        					for(int j=0;j<nnade.E[0].length;j++) {
-        						double temp = nnade.E[index][j];
-        						if(j==nnade.E[0].length-1) {
-        							oswVector.write(df.format(temp)+"\n");
-        						} else
-        							oswVector.write(df.format(temp)+" ");
-        						
-        					}
-        				}
-        				
-        				if(former.start==former.end) {
-        					String word = tokens.get(former.start).lemma().toLowerCase();
-        					if(!results.contains(word)) {
-        						results.add(word);
-
-        						int index = nnade.wordIDs.get(word);
-            					if(index == 0 || index == 1) {
-            						System.out.println(word);
-            					}
-            					oswWord.write(word+"_"+former.type.substring(0,1)+"\n");
-            					
-            					for(int j=0;j<nnade.E[0].length;j++) {
-            						double temp = nnade.E[index][j];
-            						if(j==nnade.E[0].length-1) {
-            							oswVector.write(df.format(temp)+"\n");
-            						} else
-            							oswVector.write(df.format(temp)+" ");
-            						
-            					}
-        					}
-        				} else {
-        					if(!results.contains(former.text.toLowerCase())) {
-        						results.add(former.text.toLowerCase());
-        						
-	        					TIntArrayList entityIdx = new TIntArrayList();
-	        					for(int i=former.start; i<=former.end;i++) {
-	        						String word = tokens.get(i).lemma().toLowerCase();
-	        						int index = nnade.wordIDs.get(word);
-	            					if(index == 0 || index == 1) {
-	            						System.out.println(word);
-	            					}
-	            					entityIdx.add(index);
-	        					}
-	        					oswWord.write(former.text.replace(' ', '_').toLowerCase()+"_"+former.type.substring(0,1)+"\n");
-            					
-            					double[] embedding = nnade.nn.entityCNN.forward(entityIdx).emb;
-            					
-            					for(int j=0;j<embedding.length;j++) {
-            						double temp = embedding[j];
-            						if(j==embedding.length-1) {
-            							oswVector.write(df.format(temp)+"\n");
-            						} else
-            							oswVector.write(df.format(temp)+" ");
-            						
-            					}
-        					}
-        				}
-        				
-        				if(latter.start==latter.end) {
-        					String word = tokens.get(latter.start).lemma().toLowerCase();
-        					if(!results.contains(word)) {
-        						results.add(word);
-
-        						int index = nnade.wordIDs.get(word);
-            					if(index == 0 || index == 1) {
-            						System.out.println(word);
-            					}
-            					oswWord.write(word+"_"+latter.type.substring(0,1)+"\n");
-            					
-            					for(int j=0;j<nnade.E[0].length;j++) {
-            						double temp = nnade.E[index][j];
-            						if(j==nnade.E[0].length-1) {
-            							oswVector.write(df.format(temp)+"\n");
-            						} else
-            							oswVector.write(df.format(temp)+" ");
-            						
-            					}
-        					}
-        				} else {
-        					if(!results.contains(latter.text.toLowerCase())) {
-        						results.add(latter.text.toLowerCase());
-	        					TIntArrayList entityIdx = new TIntArrayList();
-	        					for(int i=latter.start; i<=latter.end;i++) {
-	        						String word = tokens.get(i).lemma().toLowerCase();
-	        						int index = nnade.wordIDs.get(word);
-	            					if(index == 0 || index == 1) {
-	            						System.out.println(word);
-	            					}
-	            					entityIdx.add(index);
-	        					}
-	        					
-	        					oswWord.write(latter.text.replace(' ', '_').toLowerCase()+"_"+latter.type.substring(0,1)+"\n");
-            					
-            					double[] embedding = nnade.nn.entityCNN.forward(entityIdx).emb;
-            					
-            					for(int j=0;j<embedding.length;j++) {
-            						double temp = embedding[j];
-            						if(j==embedding.length-1) {
-            							oswVector.write(df.format(temp)+"\n");
-            						} else
-            							oswVector.write(df.format(temp)+" ");
-            						
-            					}
-        					}
-        				}
-        						
-
-        				if(results.size()>max)
-        					break OUT;
-        			}
-        			
-        		}
-        		
-        		
-        		
-        	}
-        }
-		
-		
-		oswVector.close();
-		oswWord.close();
-		
-	}
-	
-	static void prepareTSNE(Tool tool, Parameters parameters, List<Abstract> abs) throws Exception {
-		NNADE nnade = (NNADE)ObjectSerializer.readObjectFromFile("E:\\ade\\nnade.ser0");
-		/*HashSet<String> results = new HashSet<String>(Arrays.asList(new String[]
-		{"induce", "associate", "relate", "male", "female", "it", "describe", "report"}));
-		*/
-		
-		ArrayList<String> results = new ArrayList<String>();
-		ArrayList<String> types = new ArrayList<String>();
-		int max = 10;
-		HashSet<String> triggers = new HashSet<String>(Arrays.asList(new String[]
-		{"induce",/*"associate", "relate", "cause", "develop", "produce", "after", "follow", "result"*/}));
-		nnade.nn.preCompute();
-
-OUT:    for(Abstract ab:abs) {
-        	for(ADESentence gold:ab.sentences) {
-        		List<CoreLabel> tokens = nnade.prepareNLPInfo(tool, gold);
-        		ADESentence predicted = null;
-        		predicted = nnade.decode(tokens, tool);
-        		
-        		for(RelationEntity relation:predicted.relaitons) {
-        			Entity former = relation.getFormer();
-        			if(former.start!=former.end)
-        				continue;
-        			Entity latter = relation.getLatter();
-        			if(latter.start!=latter.end)
-        				continue;
-        			
-        			if(latter.start-former.end > 2)
-        				continue;
-        			
-        			for(int i=former.end+1;i<=latter.start-1;i++) {
-        				if(triggers.contains(tokens.get(i).lemma().toLowerCase())) {
-        					if(!results.contains(tokens.get(former.start).lemma().toLowerCase())) {
-        						results.add(tokens.get(former.start).lemma().toLowerCase());
-        						types.add(former.type.substring(0,1));
-        					}
-        					if(!results.contains(tokens.get(latter.start).lemma().toLowerCase())) {
-        						results.add(tokens.get(latter.start).lemma().toLowerCase());
-        						types.add(latter.type.substring(0,1));
-        					}
-        					if(!results.contains(tokens.get(i).lemma().toLowerCase())) {
-        						results.add(tokens.get(i).lemma().toLowerCase());
-        						types.add("#");
-        					}
-        					
-        					if(results.size()>=max)
-        						break OUT;
-        				}
-        			}
-        		}
-        		
-        		
-        		
-        	}
-        }
-		
-		
-		
-		OutputStreamWriter oswVector = new OutputStreamWriter(new FileOutputStream("D:/tools/T-SNE-Java-master/tsne-demos/test_vector.txt"), "utf-8");
-		OutputStreamWriter oswWord = new OutputStreamWriter(new FileOutputStream("D:/tools/T-SNE-Java-master/tsne-demos/test_word.txt"), "utf-8");
-		OutputStreamWriter oswType = new OutputStreamWriter(new FileOutputStream("D:/tools/T-SNE-Java-master/tsne-demos/test_type.txt"), "utf-8");
-		DecimalFormat df=new DecimalFormat("0.000000"); 
-		for(int i=0;i<results.size();i++) {
-			String word = results.get(i);
-			int index = nnade.wordIDs.get(word);
-			if(index == 0 || index == 1) {
-				System.out.println(word);
-				continue;
-			}
-			oswWord.write(word+"_"+types.get(i)+"\n");
-			oswType.write(types.get(i)+"\n");
-			for(int j=0;j<nnade.E[0].length;j++) {
-				double temp = nnade.E[index][j];
-				if(j==nnade.E[0].length-1) {
-					oswVector.write(df.format(temp)+"\n");
-				} else
-					oswVector.write(df.format(temp)+" ");
-				
-			}
-			
-		}
-		oswVector.close();
-		oswWord.close();
-		oswType.close();
 	}
 	
 	public static double exp(double x) {

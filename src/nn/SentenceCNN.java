@@ -81,7 +81,7 @@ public class SentenceCNN implements Serializable {
 					if(wordIdx<=example.positionIdxFormer.size()-1) {
 						emb = nnade.getE()[example.positionIdxFormer.get(wordIdx)];
 					} else {
-						emb = nnade.getE()[nnade.getPositionID(NNADE.UNKNOWN_POSITION)];
+						emb = nnade.getE()[nnade.getPositionID(0)];
 					}
 					for(int j=0;j<parameters.sentenceDimension;j++) {
 						for(int m=0;m<parameters.embeddingSize;m++) {
@@ -93,7 +93,7 @@ public class SentenceCNN implements Serializable {
 					if(wordIdx<=example.positionIdxLatter.size()-1) {
 						emb = nnade.getE()[example.positionIdxLatter.get(wordIdx)];
 					} else {
-						emb = nnade.getE()[nnade.getPositionID(NNADE.UNKNOWN_POSITION)];
+						emb = nnade.getE()[nnade.getPositionID(0)];
 					}
 					for(int j=0;j<parameters.sentenceDimension;j++) {
 						for(int m=0;m<parameters.embeddingSize;m++) {
@@ -188,7 +188,7 @@ public class SentenceCNN implements Serializable {
 					if(wordIdx<=example.positionIdxFormer.size()-1) {
 						embId = example.positionIdxFormer.get(wordIdx);
 					} else {
-						embId = nnade.getPositionID(NNADE.UNKNOWN_POSITION);
+						embId = nnade.getPositionID(0);
 					}
 					emb = nnade.getE()[embId];
 					
@@ -207,7 +207,7 @@ public class SentenceCNN implements Serializable {
 					if(wordIdx<=example.positionIdxLatter.size()-1) {
 						embId = example.positionIdxLatter.get(wordIdx);
 					} else {
-						embId = nnade.getPositionID(NNADE.UNKNOWN_POSITION);
+						embId = nnade.getPositionID(0);
 					}
 					emb = nnade.getE()[embId];
 					

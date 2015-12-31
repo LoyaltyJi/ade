@@ -16,7 +16,6 @@ import java.util.Random;
 import java.util.Set;
 
 import cn.fox.biomedical.Dictionary;
-import cn.fox.biomedical.Sider;
 import cn.fox.machine_learning.BrownCluster;
 import cn.fox.nlp.EnglishPos;
 import cn.fox.nlp.Punctuation;
@@ -46,16 +45,18 @@ import gnu.trove.TObjectIntHashMap;
 import utils.ADESentence;
 import utils.Abstract;
 
-public class NNADE extends Father implements Serializable {
+
+public class Combine implements Serializable {
 
 	/**
 	 * 
 	 */
 	private static final long serialVersionUID = 6814631308712316743L;
-	public NNSimple nn;
-	public Parameters parameters;
+	public CombineNN nn;
+	public CombineParameters parameters;
 	// dictionary
-	public List<String> knownWords;
+	public List<String> knownWords1;
+	public List<String> knownWords2;
 	public List<String> knownPos;
 	public List<String> knownPreSuffix;
 	public List<String> knownBrown;
@@ -65,7 +66,8 @@ public class NNADE extends Father implements Serializable {
 	public List<String> knownEntityType;
 	
 	// key-word, value-word ID (the row id of the embedding matrix)
-	public TObjectIntHashMap<String> wordIDs;
+	public TObjectIntHashMap<String> wordIDs1;
+	public TObjectIntHashMap<String> wordIDs2;
 	public TObjectIntHashMap<String> posIDs;
 	public TObjectIntHashMap<String> presuffixIDs;
 	public TObjectIntHashMap<String> brownIDs;
@@ -90,7 +92,7 @@ public class NNADE extends Father implements Serializable {
 	public boolean debug;
 	
 
-	public NNADE(Parameters parameters) {
+	public Combine(CombineParameters parameters) {
 		
 		this.parameters = parameters;
 	}
@@ -102,7 +104,7 @@ public class NNADE extends Father implements Serializable {
 		fis.close();
 		
 				
-		Parameters parameters = new Parameters(properties);
+		CombineParameters parameters = new CombineParameters(properties);
 		parameters.printParameters();
 		
 				
@@ -110,8 +112,6 @@ public class NNADE extends Father implements Serializable {
 		File groupFile = new File(PropertiesUtils.getString(properties, "groupFile", ""));
 		String modelFile = PropertiesUtils.getString(properties, "modelFile", "");
 		String embedFile = PropertiesUtils.getString(properties, "embedFile", "");
-		String wordListFile = PropertiesUtils.getString(properties, "wordListFile", "");
-		String secondEmbFile = PropertiesUtils.getString(properties, "secondEmbFile", "");
 		
 		BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(groupFile), "utf-8"));
 		String thisLine = null;
@@ -131,15 +131,14 @@ public class NNADE extends Father implements Serializable {
 		System.out.println("Group File "+ groupFile.getAbsolutePath());
 		System.out.println("Embedding File " + embedFile);
 		
-		if(!parameters.bEmbeddingFineTune && (embedFile == null || embedFile.isEmpty())) {
-			throw new Exception();
-		}
-		
+				
 		Word2Vec w2v = new Word2Vec();
 		if(embedFile != null && !embedFile.isEmpty()) {
 			long startTime = System.currentTimeMillis();
 			w2v.loadModel(embedFile, true);
 			System.out.println("Load main pretrained embeddings using " + ((System.currentTimeMillis()-startTime) / 1000.0)+"s");
+		} else {
+			throw new Exception();
 		}
 		
 		
@@ -168,15 +167,10 @@ public class NNADE extends Father implements Serializable {
 		tool.ctdmedic = ctdmedic;
 		tool.humando = humando;
 		
-		Sider sider = new Sider(PropertiesUtils.getString(properties, "sider_dict", ""));
-		tool.sider = sider;
 		
 		List<BestPerformance> bestAll = new ArrayList<>();
 		for(int i=0;i<groups.size();i++) {
 			Set<String> group = groups.get(i);
-			Set<String> groupDev = groups.get((i+1)%groups.size());
-			
-			List<Abstract> devAb = new ArrayList<>();
 			List<Abstract> trainAb = new ArrayList<>();
 			List<Abstract> testAb = new ArrayList<>();
 			for(File abstractFile:fAbstractDir.listFiles()) {
@@ -184,9 +178,6 @@ public class NNADE extends Father implements Serializable {
 				if(group.contains(ab.id)) {
 					// test abstract
 					testAb.add(ab);
-				} else if(groupDev.contains(ab.id)) {
-					// dev abstract
-					devAb.add(ab);
 				} else {
 					// train abstract
 					trainAb.add(ab);
@@ -195,71 +186,48 @@ public class NNADE extends Father implements Serializable {
 
 			}
 			
-			NNADE nnade = new NNADE(parameters);
+			Combine nnade = new Combine(parameters);
 			nnade.debug = Boolean.parseBoolean(args[1]);
 			//nnade.brownCluster = brown;
 			//nnade.wordnet = dict;
 			// save model for each group
-			System.out.println(Parameters.SEPARATOR+" group "+i);
-			BestPerformance best = nnade.trainAndTest(trainAb, devAb, testAb,modelFile+i, embedFile, 
-					tool, wordListFile, w2v);
+			System.out.println(CombineParameters.SEPARATOR+" group "+i);
+			BestPerformance best = nnade.trainAndTest(trainAb, testAb,modelFile+i, embedFile, 
+					tool, w2v);
 			bestAll.add(best);
 		}
 		
-		// dev
-		double pDev_Entity = 0;
-		double rDev_Entity = 0;
-		double f1Dev_Entity = 0;
-		double pDev_Relation = 0;
-		double rDev_Relation = 0;
-		double f1Dev_Relation = 0;
+		// macro performance
+		double macroP_Entity = 0;
+		double macroR_Entity = 0;
+		double macroF1_Entity = 0;
+		double macroP_Relation = 0;
+		double macroR_Relation = 0;
+		double macroF1_Relation = 0;
+		double fold = bestAll.size();
 		for(BestPerformance best:bestAll) {
-			pDev_Entity += best.dev_pEntity/bestAll.size(); 
-			rDev_Entity += best.dev_rEntity/bestAll.size();
-			pDev_Relation += best.dev_pRelation/bestAll.size();
-			rDev_Relation += best.dev_rRelation/bestAll.size();
+			macroP_Entity += best.pEntity/fold; 
+			macroR_Entity += best.rEntity/fold;
+			macroP_Relation += best.pRelation/fold;
+			macroR_Relation += best.rRelation/fold;
 		}
-		f1Dev_Entity = Evaluater.getFMeasure(pDev_Entity, rDev_Entity, 1);
-		f1Dev_Relation = Evaluater.getFMeasure(pDev_Relation, rDev_Relation, 1);
+		macroF1_Entity = Evaluater.getFMeasure(macroP_Entity, macroR_Entity, 1);
+		macroF1_Relation = Evaluater.getFMeasure(macroP_Relation, macroR_Relation, 1);
 		
-		System.out.println("dev entity precision\t"+pDev_Entity);
-        System.out.println("dev entity recall\t"+rDev_Entity);
-        System.out.println("dev entity f1\t"+f1Dev_Entity);
-        System.out.println("dev relation precision\t"+pDev_Relation);
-        System.out.println("dev relation recall\t"+rDev_Relation);
-        System.out.println("dev relation f1\t"+f1Dev_Relation);
-        
-        
-        // test
-        double pTest_Entity = 0;
-		double rTest_Entity = 0;
-		double f1Test_Entity = 0;
-		double pTest_Relation = 0;
-		double rTest_Relation = 0;
-		double f1Test_Relation = 0;
-		for(BestPerformance best:bestAll) {
-			pTest_Entity += best.test_pEntity/bestAll.size(); 
-			rTest_Entity += best.test_rEntity/bestAll.size();
-			pTest_Relation += best.test_pRelation/bestAll.size();
-			rTest_Relation += best.test_rRelation/bestAll.size();
-		}
-		f1Test_Entity = Evaluater.getFMeasure(pTest_Entity, rTest_Entity, 1);
-		f1Test_Relation = Evaluater.getFMeasure(pTest_Relation, rTest_Relation, 1);
-		
-		System.out.println("test entity precision\t"+pTest_Entity);
-        System.out.println("test entity recall\t"+rTest_Entity);
-        System.out.println("test entity f1\t"+f1Test_Entity);
-        System.out.println("test relation precision\t"+pTest_Relation);
-        System.out.println("test relation recall\t"+rTest_Relation);
-        System.out.println("test relation f1\t"+f1Test_Relation);
+		System.out.println("macro entity precision\t"+macroP_Entity);
+        System.out.println("macro entity recall\t"+macroR_Entity);
+        System.out.println("macro entity f1\t"+macroF1_Entity);
+        System.out.println("macro relation precision\t"+macroP_Relation);
+        System.out.println("macro relation recall\t"+macroR_Relation);
+        System.out.println("macro relation f1\t"+macroF1_Relation);
 	}
 	
-	public BestPerformance trainAndTest(List<Abstract> trainAbs, List<Abstract> devAbs, 
-			List<Abstract> testAbs, String modelFile, 
-			String embedFile, Tool tool, String wordListFile, Word2Vec w2v) 
+	public BestPerformance trainAndTest(List<Abstract> trainAbs, List<Abstract> testAbs, String modelFile, 
+			String embedFile, Tool tool, Word2Vec w2v) 
 		throws Exception {
 		// generate alphabet
-		List<String> word = new ArrayList<>();
+		List<String> word1 = new ArrayList<>();
+		List<String> word2 = new ArrayList<>();
 		List<String> pos = new ArrayList<>();	
 		List<String> presuffix = new ArrayList<>();
 		List<String> brown = new ArrayList<>();
@@ -267,7 +235,7 @@ public class NNADE extends Father implements Serializable {
 		List<String> hyper = new ArrayList<>();
 		List<String> dict = new ArrayList<>();
 		List<String> entityType = new ArrayList<>();
-		for(int i=1;i<=parameters.wordCutOff+1;i++) {
+		for(int i=1;i<=parameters.wordCutOff1+1;i++) {
 			entityType.add("Disease");
 			entityType.add("Chemical");
 		}
@@ -279,7 +247,8 @@ public class NNADE extends Father implements Serializable {
 				
 				for(CoreLabel token:tokens) {
 					
-					word.add(wordPreprocess(token, parameters));
+					word1.add(wordPreprocess(token, parameters));
+					word2.add(wordPreprocess(token, parameters));
 					pos.add(token.tag());
 					presuffix.add(getPrefix(token));
 					presuffix.add(getSuffix(token));
@@ -310,77 +279,54 @@ public class NNADE extends Father implements Serializable {
 			}
 		}
 		
-		if(!parameters.bEmbeddingFineTune) {
-			// add the alphabet of the test set
-			for(Abstract ab:testAbs) { 
-				for(ADESentence sentence:ab.sentences) {
-					// for each sentence
-					List<CoreLabel> tokens = prepareNLPInfo(tool, sentence);
-					
-					for(CoreLabel token:tokens) {
-						
-						word.add(wordPreprocess(token, parameters));
-						pos.add(token.tag());
-						presuffix.add(getPrefix(token));
-						presuffix.add(getSuffix(token));
-						brown.add(getBrown(token, tool));
-						dict.add(getDict(token, tool));
-						
-						String id = getSynset(token, tool);
-						if(id!=null)
-							synset.add(id);
-						
-						String hyperID = getHyper(token, tool);
-						if(hyperID!=null)
-							hyper.add(hyperID);
-					}
-					
-					
-					for(Entity entity:sentence.entities) {
-						String id = getSynset(entity.text, tool);
-						if(id!=null)
-							synset.add(id);
-						
-						String hyperID = getHyper(entity.text, tool);
-						if(hyperID!=null)
-							hyper.add(hyperID);
-						
-					}
+
+		// add the alphabet of the test set
+		for(Abstract ab:testAbs) { 
+			for(ADESentence sentence:ab.sentences) {
+				// for each sentence
+				List<CoreLabel> tokens = prepareNLPInfo(tool, sentence);
+				
+				for(CoreLabel token:tokens) {
+					word2.add(wordPreprocess(token, parameters));
 				}
+				
 			}
-			
 		}
-		
-		if(parameters.bEmbeddingFineTune && parameters.wordCutOff<=1)
-			throw new Exception();
 			
-		knownWords = Util.generateDict(word, parameters.wordCutOff);
-	    knownWords.add(0, Parameters.UNKNOWN);
-	    knownWords.add(1, Parameters.PADDING);
-	    knownPos = Util.generateDict(pos, parameters.wordCutOff);
-	    knownPos.add(0, Parameters.UNKNOWN);
-	    knownPos.add(1, Parameters.PADDING);
-	    knownPreSuffix = Util.generateDict(presuffix, parameters.wordCutOff);
-	    knownPreSuffix.add(0, Parameters.UNKNOWN);
-	    knownPreSuffix.add(1, Parameters.PADDING);
-	    knownBrown = Util.generateDict(brown, parameters.wordCutOff);
-	    knownBrown.add(0, Parameters.UNKNOWN);
-	    knownBrown.add(1, Parameters.PADDING);
-	    knownSynSet = Util.generateDict(synset, parameters.wordCutOff);
-	    knownSynSet.add(0, Parameters.UNKNOWN);
-	    knownSynSet.add(1, Parameters.PADDING);
-	    knownHyper = Util.generateDict(hyper, parameters.wordCutOff);
-	    knownHyper.add(0, Parameters.UNKNOWN);
-	    knownHyper.add(1, Parameters.PADDING);
-	    knownDict = Util.generateDict(dict, parameters.wordCutOff);
-	    knownDict.add(Parameters.UNKNOWN);
-	    knownDict.add(Parameters.PADDING);
-	    knownEntityType = Util.generateDict(entityType, parameters.wordCutOff);
-	    knownEntityType.add(Parameters.UNKNOWN);
+			
+		knownWords1 = Util.generateDict(word1, parameters.wordCutOff1);
+	    knownWords1.add(0, CombineParameters.UNKNOWN);
+	    knownWords1.add(1, CombineParameters.PADDING);
+	    knownWords2 = Util.generateDict(word2, parameters.wordCutOff2);
+	    knownWords2.add(0, CombineParameters.UNKNOWN);
+	    knownWords2.add(1, CombineParameters.PADDING);
+	    
+	    knownPos = Util.generateDict(pos, parameters.wordCutOff1);
+	    knownPos.add(0, CombineParameters.UNKNOWN);
+	    knownPos.add(1, CombineParameters.PADDING);
+	    knownPreSuffix = Util.generateDict(presuffix, parameters.wordCutOff1);
+	    knownPreSuffix.add(0, CombineParameters.UNKNOWN);
+	    knownPreSuffix.add(1, CombineParameters.PADDING);
+	    knownBrown = Util.generateDict(brown, parameters.wordCutOff1);
+	    knownBrown.add(0, CombineParameters.UNKNOWN);
+	    knownBrown.add(1, CombineParameters.PADDING);
+	    knownSynSet = Util.generateDict(synset, parameters.wordCutOff1);
+	    knownSynSet.add(0, CombineParameters.UNKNOWN);
+	    knownSynSet.add(1, CombineParameters.PADDING);
+	    knownHyper = Util.generateDict(hyper, parameters.wordCutOff1);
+	    knownHyper.add(0, CombineParameters.UNKNOWN);
+	    knownHyper.add(1, CombineParameters.PADDING);
+	    knownDict = Util.generateDict(dict, parameters.wordCutOff1);
+	    knownDict.add(CombineParameters.UNKNOWN);
+	    knownDict.add(CombineParameters.PADDING);
+	    knownEntityType = Util.generateDict(entityType, parameters.wordCutOff1);
+	    knownEntityType.add(CombineParameters.UNKNOWN);
 
 	    
 	    // Generate word id which can be used in the embedding matrix
-	    wordIDs = new TObjectIntHashMap<String>();
+	    wordIDs1 = new TObjectIntHashMap<>();
+	    wordIDs2 = new TObjectIntHashMap<>();
+	    
 	    posIDs = new TObjectIntHashMap<>();
 	    presuffixIDs = new TObjectIntHashMap<>();
 	    brownIDs = new TObjectIntHashMap<>();
@@ -389,8 +335,11 @@ public class NNADE extends Father implements Serializable {
 	    dictIDs = new TObjectIntHashMap<>();
 	    entitytypeIDs = new TObjectIntHashMap<>();
 	    int m = 0;
-	    for (String temp : knownWords)
-	      wordIDs.put(temp, (m++));
+	    for (String temp : knownWords1)
+	      wordIDs1.put(temp, (m++));
+	    for (String temp : knownWords2)
+		  wordIDs2.put(temp, (m++));
+	    
 	    for (String temp : knownPos)
 	        posIDs.put(temp, (m++));
 	    for (String temp : knownPreSuffix)
@@ -406,125 +355,51 @@ public class NNADE extends Father implements Serializable {
 	    for(String temp:knownEntityType)
 	    	entitytypeIDs.put(temp, (m++));
 
-	    System.out.println("#Word: " + knownWords.size());
-	    System.out.println("#POS: " + knownPos.size());
-	    System.out.println("#PreSuffix: " + knownPreSuffix.size());
-	    System.out.println("#Brown: " + knownBrown.size());
-	    System.out.println("#Synset: " + knownSynSet.size());
-	    System.out.println("#Hyper: " + knownHyper.size());
-	    System.out.println("#Dict: " + knownDict.size());
-	    System.out.println("#Entity type: "+knownEntityType.size());
 	    
 	    E = new double[m][parameters.embeddingSize];
 		eg2E = new double[E.length][E[0].length];
 		
-	    if(parameters.bEmbeddingFineTune) {
-	    	if(embedFile!=null && !embedFile.isEmpty()) {
-	    		TIntArrayList uninitialIds = new TIntArrayList();
-	    		int unknownID = -1;
-				double sum[] = new double[parameters.embeddingSize];
-				int count = 0;
-				for (int i = 0; i < knownWords.size(); ++i) {
-					if(knownWords.get(i).equals(Parameters.UNKNOWN)) {
-						unknownID = wordIDs.get(knownWords.get(i));
-						continue;
-					}
-					
-					String str = knownWords.get(i);
-				      int id = wordIDs.get(str);
-				      if (w2v.wordMap.containsKey(str))  {
-				    	  for(int j=0;j<E[0].length;j++) {
-				    		  E[id][j] = w2v.wordMap.get(str)[j];
-				    		  sum[j] += E[id][j];
-				    	  }
-				    	  count++;
-				      } else {
-				    	  uninitialIds.add(id);
-				      }
-				}
-				// unkown is the average of all words
-				for (int idx = 0; idx < parameters.embeddingSize; idx++) {
-				   E[unknownID][idx] = sum[idx] / count;
-				}
-				// word not in pre-trained embedding will use the unknown embedding
-				for(int i=0;i<uninitialIds.size();i++) {
-					int id = uninitialIds.get(i);
-					for (int j = 0; j < parameters.embeddingSize; j++) {
-						E[id][j] = E[unknownID][j];
-					}
-				}
-	    	} else {
-	    		Random random = new Random(System.currentTimeMillis());
-	    		int unknownID = -1;
-				double sum[] = new double[parameters.embeddingSize];
-				int count = 0;
-	    		for (int i = 0; i < knownWords.size(); ++i) {
-	    			if(knownWords.get(i).equals(Parameters.UNKNOWN)) {
-						unknownID = wordIDs.get(knownWords.get(i));
-						continue;
-					}
-	    			
-	    			
-	    			String str = knownWords.get(i);
-				    int id = wordIDs.get(str);
-	    			double norm = 0;
-					for(int j=0;j<E[0].length;j++) {
-				    	E[id][j] = random.nextDouble() * parameters.initRange * 2 - parameters.initRange;
-				    	norm += E[id][j]*E[id][j];
-				    	
-				    }
-					norm = Math.sqrt(norm);
-					for(int j=0;j<E[0].length;j++) {
-						E[id][j] = E[id][j]/norm;
-						sum[j] += E[id][j];
-					}
-				    count++; 
-				}
-	    		for (int idx = 0; idx < parameters.embeddingSize; idx++) {
-	 			   E[unknownID][idx] = sum[idx] / count;
-	 			}
-	    		
-	    		
-	    	}
-	    } else {
-	    	if(embedFile==null && embedFile.isEmpty())
-	    		throw new Exception ();
-	    	
-	    	TIntArrayList uninitialIds = new TIntArrayList();
-			int unknownID = -1;
-			double sum[] = new double[parameters.embeddingSize];
-			int count = 0;
-			for (int i = 0; i < knownWords.size(); ++i) {
-				if(knownWords.get(i).equals(Parameters.UNKNOWN)) {
-					unknownID = wordIDs.get(knownWords.get(i));
-					continue;
-				}
-				
-			      String str = knownWords.get(i);
-			      int id = wordIDs.get(str);
-			      if (w2v.wordMap.containsKey(str))  {
-			    	  for(int j=0;j<E[0].length;j++) {
-			    		  E[id][j] = w2v.wordMap.get(str)[j];
-			    		  sum[j] += E[id][j];
-			    	  }
-			    	  count++;
-			      } else {
-			    	  uninitialIds.add(id);
-			      }
+		// for 1, randowm
+		randomInitialEmbedding(knownWords1, wordIDs1, E);
+		// for 2, emb
+		TIntArrayList uninitialIds = new TIntArrayList();
+		int unknownID = -1;
+		double sum[] = new double[parameters.embeddingSize];
+		int count = 0;
+		for (int i = 0; i < knownWords2.size(); ++i) {
+			if(knownWords2.get(i).equals(CombineParameters.UNKNOWN)) {
+				unknownID = wordIDs2.get(knownWords2.get(i));
+				continue;
 			}
-			// unkown is the average of all words
-			for (int idx = 0; idx < parameters.embeddingSize; idx++) {
-			   E[unknownID][idx] = sum[idx] / count;
+			
+		      String str = knownWords2.get(i);
+		      int id = wordIDs2.get(str);
+		      if (w2v.wordMap.containsKey(str))  {
+		    	  for(int j=0;j<E[0].length;j++) {
+		    		  E[id][j] = w2v.wordMap.get(str)[j];
+		    		  sum[j] += E[id][j];
+		    	  }
+		    	  count++;
+		      } else {
+		    	  uninitialIds.add(id);
+		      }
+		}
+		if(count==0)
+			count=1;
+		// unkown is the average of all words
+		for (int idx = 0; idx < parameters.embeddingSize; idx++) {
+		   E[unknownID][idx] = sum[idx] / count;
+		}
+		// word not in pre-trained embedding will use the unknown embedding
+		for(int i=0;i<uninitialIds.size();i++) {
+			int id = uninitialIds.get(i);
+			for (int j = 0; j < parameters.embeddingSize; j++) {
+				E[id][j] = E[unknownID][j];
 			}
-			// word not in pre-trained embedding will use the unknown embedding
-			for(int i=0;i<uninitialIds.size();i++) {
-				int id = uninitialIds.get(i);
-				for (int j = 0; j < parameters.embeddingSize; j++) {
-					E[id][j] = E[unknownID][j];
-				}
-			}
-	    }
-	    
+		}
+		
+		
+   
 		
 		// non-word embedding can only be initialized randomly
 		randomInitialEmbedding(knownPos, posIDs, E);
@@ -549,7 +424,7 @@ public class NNADE extends Father implements Serializable {
 	    }
 		
 		// new a NN and initialize its weight
-	    nn  = new NNSimple(parameters, this, preComputed, exampleEntity.get(0));
+	    nn  = new CombineNN(parameters, this, preComputed, exampleEntity.get(0));
 		nn.debug = debug;
 		
 		// train iteration
@@ -588,11 +463,11 @@ public class NNADE extends Father implements Serializable {
 				System.out.println("Elapsed Time: " + (System.currentTimeMillis() - startTime) / 1000.0 + " (s)");
 			
 			if (iter>0 && iter % parameters.evalPerIter == 0) {
-				evaluate(tool, devAbs, testAbs, modelFile, best);
+				evaluate(tool, testAbs, modelFile, best);
 			}			
 		}
 		
-		evaluate(tool, devAbs, testAbs, modelFile, best);
+		evaluate(tool, testAbs, modelFile, best);
 		
 		return best;
 	}
@@ -605,7 +480,7 @@ public class NNADE extends Father implements Serializable {
 		double sum[] = new double[parameters.embeddingSize];
 		int count = 0;
 		for (int i = 0; i < known.size(); ++i) {
-			if(known.get(i).equals(Parameters.UNKNOWN)) {
+			if(known.get(i).equals(CombineParameters.UNKNOWN)) {
 				unknownID = IDs.get(known.get(i));
 				continue;
 			}
@@ -626,14 +501,15 @@ public class NNADE extends Father implements Serializable {
 			}
 		    count++; 
 		}
+		if(count==0)
+			count=1;
 		for (int idx = 0; idx < parameters.embeddingSize; idx++) {
 		   emb[unknownID][idx] = sum[idx] / count;
 		}
 	}
 	
 	// Evaluate with the test set, and if the f1 is higher than bestF1, save the model
-	public void evaluate(Tool tool, List<Abstract> devAbs, 
-			List<Abstract> testAbs, String modelFile, BestPerformance best)
+	public void evaluate(Tool tool, List<Abstract> testAbs, String modelFile, BestPerformance best)
 			throws Exception {
 		// Redo precomputation with updated weights. This is only
         // necessary because we're updating weights -- for normal
@@ -641,8 +517,8 @@ public class NNADE extends Father implements Serializable {
         nn.preCompute();
 
         DecodeStatistic stat = new DecodeStatistic();
-        for(Abstract devAb:devAbs) {
-        	for(ADESentence gold:devAb.sentences) {
+        for(Abstract testAb:testAbs) {
+        	for(ADESentence gold:testAb.sentences) {
         		List<CoreLabel> tokens = prepareNLPInfo(tool, gold);
         		ADESentence predicted = null;
         		predicted = decode(tokens, tool);
@@ -665,80 +541,33 @@ public class NNADE extends Father implements Serializable {
         	}
         }
         
-        System.out.println(Parameters.SEPARATOR);
-        double dev_pEntity = stat.getEntityPrecision();
-        System.out.println("dev entity precision\t"+dev_pEntity);
-        double dev_rEntity = stat.getEntityRecall();
-        System.out.println("dev entity recall\t"+dev_rEntity);
-        double dev_f1Entity = stat.getEntityF1();
-        System.out.println("dev entity f1\t"+dev_f1Entity);
-        double dev_pRelation = stat.getRelationPrecision();
-        System.out.println("dev relation precision\t"+dev_pRelation);
-        double dev_rRelation = stat.getRelationRecall();
-        System.out.println("dev relation recall\t"+dev_rRelation);
-        double dev_f1Relation = stat.getRelationF1();
-        System.out.println("dev relation f1\t"+dev_f1Relation);
+        System.out.println(CombineParameters.SEPARATOR);
+        System.out.println("transiton wrong rate "+stat.getWrongRate());
+        double pEntity = stat.getEntityPrecision();
+        System.out.println("entity precision\t"+pEntity);
+        double rEntity = stat.getEntityRecall();
+        System.out.println("entity recall\t"+rEntity);
+        double f1Entity = stat.getEntityF1();
+        System.out.println("entity f1\t"+f1Entity);
+        double pRelation = stat.getRelationPrecision();
+        System.out.println("relation precision\t"+pRelation);
+        double rRelation = stat.getRelationRecall();
+        System.out.println("relation recall\t"+rRelation);
+        double f1Relation = stat.getRelationF1();
+        System.out.println("relation f1\t"+f1Relation);
+        System.out.println(CombineParameters.SEPARATOR);
 
         	
-        if ((dev_f1Relation > best.dev_f1Relation) || (dev_f1Relation==best.dev_f1Relation && dev_f1Entity>best.dev_f1Entity)) {
+        if ((f1Relation > best.f1Relation) || (f1Relation==best.f1Relation && f1Entity>best.f1Entity)) {
         //if ((f1Entity > best.f1Entity)) {
           System.out.printf("Current Exceeds the best! Saving model file %s\n", modelFile);
-          best.dev_pEntity = dev_pEntity;
-          best.dev_rEntity = dev_rEntity;
-          best.dev_f1Entity = dev_f1Entity;
-          best.dev_pRelation = dev_pRelation;
-          best.dev_rRelation = dev_rRelation;
-          best.dev_f1Relation = dev_f1Relation;
+          best.pEntity = pEntity;
+          best.rEntity = rEntity;
+          best.f1Entity = f1Entity;
+          best.pRelation = pRelation;
+          best.rRelation = rRelation;
+          best.f1Relation = f1Relation;
           //ObjectSerializer.writeObjectToFile(this, modelFile);
-          
-          // the current outperforms the prior on dev, so we evaluate on test and record the performance
-          DecodeStatistic stat2 = new DecodeStatistic();
-          for(Abstract testAb:testAbs) {
-          	for(ADESentence gold:testAb.sentences) {
-          		List<CoreLabel> tokens = prepareNLPInfo(tool, gold);
-          		ADESentence predicted = null;
-          		predicted = decode(tokens, tool);
-          		
-          		stat2.ctPredictEntity += predicted.entities.size();
-          		stat2.ctTrueEntity += gold.entities.size();
-          		for(Entity preEntity:predicted.entities) {
-          			if(gold.entities.contains(preEntity))
-          				stat2.ctCorrectEntity++;
-      			}
-          		
-          		stat2.ctPredictRelation += predicted.relaitons.size();
-        		stat2.ctTrueRelation += gold.relaitons.size();
-        		for(RelationEntity preRelation:predicted.relaitons) {
-        			if(gold.relaitons.contains(preRelation))
-        				stat2.ctCorrectRelation++;
-        		}
-          		
-          	}
-          }
-          
-          
-          double test_pEntity = stat2.getEntityPrecision();
-          System.out.println("test entity precision\t"+test_pEntity);
-          double test_rEntity = stat2.getEntityRecall();
-          System.out.println("test entity recall\t"+test_rEntity);
-          double test_f1Entity = stat2.getEntityF1();
-          System.out.println("test entity f1\t"+test_f1Entity);
-          double test_pRelation = stat2.getRelationPrecision();
-          System.out.println("test relation precision\t"+test_pRelation);
-          double test_rRelation = stat2.getRelationRecall();
-          System.out.println("test relation recall\t"+test_rRelation);
-          double test_f1Relation = stat2.getRelationF1();
-          System.out.println("test relation f1\t"+test_f1Relation);
-          System.out.println(Parameters.SEPARATOR);
-          // update the best test performance
-          best.test_pEntity = test_pEntity;
-          best.test_rEntity = test_rEntity;
-          best.test_f1Entity = test_f1Entity;
-          best.test_pRelation = test_pRelation;
-          best.test_rRelation = test_rRelation;
-          best.test_f1Relation = test_f1Relation;
-        } else {
-        	System.out.println(Parameters.SEPARATOR);
         }
         
 	}
@@ -768,7 +597,7 @@ public class NNADE extends Father implements Serializable {
 					} else {
 						Entity gold = entities.get(index);
 						if(Util.isFirstWordOfEntity(gold, token)) {
-							if(gold.type.equals(Parameters.CHEMICAL)) {
+							if(gold.type.equals(CombineParameters.CHEMICAL)) {
 								// new chemical
 								goldLabel[1] = 1;
 							} else {
@@ -821,7 +650,7 @@ public class NNADE extends Father implements Serializable {
 						Example example = getExampleFeatures(tokens, -1, true, former, latter, tool, entities);
 						double[] goldLabel = {0,0,0,0,0,0};
 						
-						RelationEntity tempRelation = new RelationEntity(Parameters.RELATION, former, latter);
+						RelationEntity tempRelation = new RelationEntity(CombineParameters.RELATION, former, latter);
 						if(sentence.relaitons.contains(tempRelation)) {
 							// connect
 							goldLabel[5] = 1;
@@ -853,24 +682,29 @@ public class NNADE extends Father implements Serializable {
 		
 		if(!bRelation) {
 			// current word
-			example.featureIdx.add(getWordID(tokens.get(idx)));
+			example.featureIdx.add(getWordID1(tokens.get(idx)));
+			example.featureIdx.add(getWordID2(tokens.get(idx)));
 			
 			// words before the current word, but in the window
 			for(int i=0;i<parameters.windowSize;i++) {
 				int idxBefore = idx-1-i;
 				if(idxBefore>=0) {
-					example.featureIdx.add(getWordID(tokens.get(idxBefore)));
+					example.featureIdx.add(getWordID1(tokens.get(idxBefore)));
+					example.featureIdx.add(getWordID2(tokens.get(idxBefore)));
 				} else {
-					example.featureIdx.add(getPaddingID());
+					example.featureIdx.add(getPaddingID1());
+					example.featureIdx.add(getPaddingID2());
 				}
 			}
 			// words after the current word, but in the window
 			for(int i=0;i<parameters.windowSize;i++) {
 				int idxAfter = idx+1+i;
 				if(idxAfter<=tokens.size()-1) {
-					example.featureIdx.add(getWordID(tokens.get(idxAfter)));
+					example.featureIdx.add(getWordID1(tokens.get(idxAfter)));
+					example.featureIdx.add(getWordID2(tokens.get(idxAfter)));
 				} else {
-					example.featureIdx.add(getPaddingID());
+					example.featureIdx.add(getPaddingID1());
+					example.featureIdx.add(getPaddingID2());
 				}
 			}
 			
@@ -883,7 +717,7 @@ public class NNADE extends Father implements Serializable {
 				if(idxBefore>=0) {
 					example.featureIdx.add(getPosID(tokens.get(idxBefore).tag()));
 				} else {
-					example.featureIdx.add(getPosID(Parameters.PADDING));
+					example.featureIdx.add(getPosID(CombineParameters.PADDING));
 				}
 			}
 			for(int i=0;i<1;i++) {
@@ -891,7 +725,7 @@ public class NNADE extends Father implements Serializable {
 				if(idxAfter<=tokens.size()-1) {
 					example.featureIdx.add(getPosID(tokens.get(idxAfter).tag()));
 				} else {
-					example.featureIdx.add(getPosID(Parameters.PADDING));
+					example.featureIdx.add(getPosID(CombineParameters.PADDING));
 				}
 			}
 			
@@ -906,8 +740,8 @@ public class NNADE extends Father implements Serializable {
 					example.featureIdx.add(getPreSuffixID(getPrefix(tokens.get(idxBefore))));
 					example.featureIdx.add(getPreSuffixID(getSuffix(tokens.get(idxBefore))));
 				} else {
-					example.featureIdx.add(getPreSuffixID(Parameters.PADDING));
-					example.featureIdx.add(getPreSuffixID(Parameters.PADDING));
+					example.featureIdx.add(getPreSuffixID(CombineParameters.PADDING));
+					example.featureIdx.add(getPreSuffixID(CombineParameters.PADDING));
 				}
 			}
 			for(int i=0;i<2;i++) {
@@ -916,8 +750,8 @@ public class NNADE extends Father implements Serializable {
 					example.featureIdx.add(getPreSuffixID(getPrefix(tokens.get(idxAfter))));
 					example.featureIdx.add(getPreSuffixID(getSuffix(tokens.get(idxAfter))));
 				} else {
-					example.featureIdx.add(getPreSuffixID(Parameters.PADDING));
-					example.featureIdx.add(getPreSuffixID(Parameters.PADDING));
+					example.featureIdx.add(getPreSuffixID(CombineParameters.PADDING));
+					example.featureIdx.add(getPreSuffixID(CombineParameters.PADDING));
 				}
 			}
 			
@@ -930,7 +764,7 @@ public class NNADE extends Father implements Serializable {
 				if(idxBefore>=0) {
 					example.featureIdx.add(getBrownID(getBrown(tokens.get(idxBefore), tool)));
 				} else {
-					example.featureIdx.add(getBrownID(Parameters.PADDING));
+					example.featureIdx.add(getBrownID(CombineParameters.PADDING));
 				}
 			}
 			for(int i=0;i<2;i++) {
@@ -938,7 +772,7 @@ public class NNADE extends Father implements Serializable {
 				if(idxAfter<=tokens.size()-1) {
 					example.featureIdx.add(getBrownID(getBrown(tokens.get(idxAfter), tool)));
 				} else {
-					example.featureIdx.add(getBrownID(Parameters.PADDING));
+					example.featureIdx.add(getBrownID(CombineParameters.PADDING));
 				}
 			}
 			
@@ -951,7 +785,7 @@ public class NNADE extends Father implements Serializable {
 				if(idxBefore>=0) {
 					example.featureIdx.add(getSynsetID(getSynset(tokens.get(idxBefore), tool)));
 				} else {
-					example.featureIdx.add(getSynsetID(Parameters.PADDING));
+					example.featureIdx.add(getSynsetID(CombineParameters.PADDING));
 				}
 			}
 			for(int i=0;i<2;i++) {
@@ -959,7 +793,7 @@ public class NNADE extends Father implements Serializable {
 				if(idxAfter<=tokens.size()-1) {
 					example.featureIdx.add(getSynsetID(getSynset(tokens.get(idxAfter), tool)));
 				} else {
-					example.featureIdx.add(getSynsetID(Parameters.PADDING));
+					example.featureIdx.add(getSynsetID(CombineParameters.PADDING));
 				}
 			}
 			
@@ -974,7 +808,7 @@ public class NNADE extends Father implements Serializable {
 				if(idxBefore>=0) {
 					example.featureIdx.add(getDictID(getDict(tokens.get(idxBefore), tool)));
 				} else {
-					example.featureIdx.add(getDictID(Parameters.PADDING));
+					example.featureIdx.add(getDictID(CombineParameters.PADDING));
 				}
 			}
 			for(int i=0;i<2;i++) {
@@ -982,7 +816,7 @@ public class NNADE extends Father implements Serializable {
 				if(idxAfter<=tokens.size()-1) {
 					example.featureIdx.add(getDictID(getDict(tokens.get(idxAfter), tool)));
 				} else {
-					example.featureIdx.add(getDictID(Parameters.PADDING));
+					example.featureIdx.add(getDictID(CombineParameters.PADDING));
 				}
 			}
 			
@@ -992,9 +826,11 @@ public class NNADE extends Father implements Serializable {
 			// words after the first entity
 			for(int i=0;i<2;i++) {
 				example.featureIdx.add(-1);
+				example.featureIdx.add(-1);
 			}
 			// words before the second entity
 			for(int i=0;i<2;i++) {
+				example.featureIdx.add(-1);
 				example.featureIdx.add(-1);
 			}
 			
@@ -1013,23 +849,28 @@ public class NNADE extends Father implements Serializable {
 		} else {
 			// current word
 			example.featureIdx.add(-1);
+			example.featureIdx.add(-1);
 				
 			// words before the former, but in the window
 			for(int i=0;i<parameters.windowSize;i++) {
 				int idxBefore = former.start-1-i;
 				if(idxBefore>=0) {
-					example.featureIdx.add(getWordID(tokens.get(idxBefore)));
+					example.featureIdx.add(getWordID1(tokens.get(idxBefore)));
+					example.featureIdx.add(getWordID2(tokens.get(idxBefore)));
 				} else {
-					example.featureIdx.add(getPaddingID());
+					example.featureIdx.add(getPaddingID1());
+					example.featureIdx.add(getPaddingID2());
 				}
 			}
 			// words after the latter, but in the window
 			for(int i=0;i<parameters.windowSize;i++) {
 				int idxAfter = latter.end+1+i;
 				if(idxAfter<=tokens.size()-1) {
-					example.featureIdx.add(getWordID(tokens.get(idxAfter)));
+					example.featureIdx.add(getWordID1(tokens.get(idxAfter)));
+					example.featureIdx.add(getWordID2(tokens.get(idxAfter)));
 				} else {
-					example.featureIdx.add(getPaddingID());
+					example.featureIdx.add(getPaddingID1());
+					example.featureIdx.add(getPaddingID2());
 				}
 			}
 			
@@ -1100,9 +941,11 @@ public class NNADE extends Father implements Serializable {
 			for(int i=0;i<2;i++) {
 				int idxAfter = former.end+1+i;
 				if(idxAfter<=latter.start-1) {
-					example.featureIdx.add(getWordID(tokens.get(idxAfter)));
+					example.featureIdx.add(getWordID1(tokens.get(idxAfter)));
+					example.featureIdx.add(getWordID2(tokens.get(idxAfter)));
 				} else {
-					example.featureIdx.add(getPaddingID());
+					example.featureIdx.add(getPaddingID1());
+					example.featureIdx.add(getPaddingID2());
 				}
 				
 			}
@@ -1110,9 +953,11 @@ public class NNADE extends Father implements Serializable {
 			for(int i=0;i<2;i++) {
 				int idxBefore = latter.start-1-i;
 				if(idxBefore>=former.end+1) {
-					example.featureIdx.add(getWordID(tokens.get(idxBefore)));
+					example.featureIdx.add(getWordID1(tokens.get(idxBefore)));
+					example.featureIdx.add(getWordID2(tokens.get(idxBefore)));
 				} else {
-					example.featureIdx.add(getPaddingID());
+					example.featureIdx.add(getPaddingID1());
+					example.featureIdx.add(getPaddingID2());
 				}
 			}
 			
@@ -1133,74 +978,53 @@ public class NNADE extends Father implements Serializable {
 			// entity
 			for(int i=former.start;i<=former.end;i++) {
 				CoreLabel token = tokens.get(i);
-				int embIdx = getWordID(token);
-				example.formerIdx.add(embIdx);
+				example.formerIdx.add(getWordID1(token));
+				example.formerIdx.add(getWordID2(token));
 			}
 			for(int i=latter.start;i<=latter.end;i++) {
 				CoreLabel token = tokens.get(i);
-				int embIdx = getWordID(token);
-				example.latterIdx.add(embIdx);
+				example.latterIdx.add(getWordID1(token));
+				example.latterIdx.add(getWordID2(token));
 			}
-			// sentence
-			if(parameters.sentenceConvolution)
-				fillSentenceIdx(tokens, former, latter, entities, example);
+			
 			
 		}
 		
 		return example;
 	}
 	
-	public void fillSentenceIdx(List<CoreLabel> tokens, Entity former, Entity latter, List<Entity> entities,
-			Example example) {
-		// fill other entities with PADDING and fill the corresponding positions
-		for(int i=0;i<tokens.size();i++) {
-			if(Util.isInsideAEntity(tokens.get(i).beginPosition(), tokens.get(i).endPosition(), former)) {
-				example.sentenceIdx.add(getWordID(tokens.get(i)));
-				example.positionIdxFormer.add(getPositionID(0));
-				example.positionIdxLatter.add(getPositionID(i-latter.start));
-			} else if(Util.isInsideAEntity(tokens.get(i).beginPosition(), tokens.get(i).endPosition(), latter)) {
-				example.sentenceIdx.add(getWordID(tokens.get(i)));
-				example.positionIdxFormer.add(getPositionID(i-former.end));
-				example.positionIdxLatter.add(getPositionID(0));
-			} else if(-1 != Util.isInsideAGoldEntityAndReturnIt(tokens.get(i).beginPosition(), tokens.get(i).endPosition(), entities)) {
-				example.sentenceIdx.add(getPaddingID());
-			} else {
-				example.sentenceIdx.add(getWordID(tokens.get(i)));
-				if(i<former.start)
-					example.positionIdxFormer.add(getPositionID(i-former.start));
-				else
-					example.positionIdxFormer.add(getPositionID(i-former.end));
-				
-				if(i<latter.start)
-					example.positionIdxLatter.add(getPositionID(i-latter.start));
-				else
-					example.positionIdxLatter.add(getPositionID(i-latter.end));
-			}
-
-		}
-	}
+	
 	
 	public CoreLabel getHeadWord(Entity entity, List<CoreLabel> tokens) {
 		return tokens.get(entity.end);
 	}
 	
-	@Override
-	public int getPaddingID() {
-		return wordIDs.get(Parameters.PADDING);
+	public int getPaddingID1() {
+		return wordIDs1.get(CombineParameters.PADDING);
+	}
+	
+	public int getPaddingID2() {
+		return wordIDs2.get(CombineParameters.PADDING);
 	}
 		
-	public int getWordID(CoreLabel token) {
+	public int getWordID1(CoreLabel token) {
 		String temp = wordPreprocess(token, parameters);
-		return wordIDs.containsKey(temp) ? wordIDs.get(temp) : wordIDs.get(Parameters.UNKNOWN);
+		return wordIDs1.containsKey(temp) ? wordIDs1.get(temp) : wordIDs1.get(CombineParameters.UNKNOWN);
+			
+	 }
+	
+	public int getWordID2(CoreLabel token) {
+		String temp = wordPreprocess(token, parameters);
+		return wordIDs2.containsKey(temp) ? wordIDs2.get(temp) : wordIDs2.get(CombineParameters.UNKNOWN);
 			
 	 }
 	
 	public int getPosID(String s) {
-	      return posIDs.containsKey(s) ? posIDs.get(s) : posIDs.get(Parameters.UNKNOWN);
+	      return posIDs.containsKey(s) ? posIDs.get(s) : posIDs.get(CombineParameters.UNKNOWN);
 	  }
 	
 	public int getPreSuffixID(String s) {
-		return presuffixIDs.containsKey(s) ? presuffixIDs.get(s) : presuffixIDs.get(Parameters.UNKNOWN);
+		return presuffixIDs.containsKey(s) ? presuffixIDs.get(s) : presuffixIDs.get(CombineParameters.UNKNOWN);
 	}
 	
 	public String getPrefix(CoreLabel token) {
@@ -1219,7 +1043,7 @@ public class NNADE extends Father implements Serializable {
 	
 	public int getBrownID(String s) {
 
-		return brownIDs.containsKey(s) ? brownIDs.get(s) : brownIDs.get(Parameters.UNKNOWN);
+		return brownIDs.containsKey(s) ? brownIDs.get(s) : brownIDs.get(CombineParameters.UNKNOWN);
 	}
 	
 	public String getSynset(CoreLabel token, Tool tool) {
@@ -1250,9 +1074,9 @@ public class NNADE extends Father implements Serializable {
 	
 	public int getSynsetID(String s) {
 		if(s==null)
-			return synsetIDs.get(Parameters.UNKNOWN);
+			return synsetIDs.get(CombineParameters.UNKNOWN);
 		else
-			return synsetIDs.containsKey(s) ? synsetIDs.get(s) : synsetIDs.get(Parameters.UNKNOWN);
+			return synsetIDs.containsKey(s) ? synsetIDs.get(s) : synsetIDs.get(CombineParameters.UNKNOWN);
 	}
 	
 	public String getHyper(CoreLabel token, Tool tool) {
@@ -1283,9 +1107,9 @@ public class NNADE extends Father implements Serializable {
 	
 	public int getHyperID(String s) {
 		if(s==null)
-			return hyperIDs.get(Parameters.UNKNOWN);
+			return hyperIDs.get(CombineParameters.UNKNOWN);
 		else
-			return hyperIDs.containsKey(s) ? hyperIDs.get(s) : hyperIDs.get(Parameters.UNKNOWN);
+			return hyperIDs.containsKey(s) ? hyperIDs.get(s) : hyperIDs.get(CombineParameters.UNKNOWN);
 	}
 	
 	public String getDict(CoreLabel token, Tool tool) {
@@ -1309,25 +1133,16 @@ public class NNADE extends Father implements Serializable {
 	
 	public int getDictID(String s) {
 		if(s==null)
-			return dictIDs.get(Parameters.UNKNOWN);
+			return dictIDs.get(CombineParameters.UNKNOWN);
 		else
-			return dictIDs.containsKey(s) ? dictIDs.get(s) : dictIDs.get(Parameters.UNKNOWN);
+			return dictIDs.containsKey(s) ? dictIDs.get(s) : dictIDs.get(CombineParameters.UNKNOWN);
 	}
 	
 	public int getEntityTypeID(Entity entity) {
-		return entitytypeIDs.containsKey(entity.type) ? entitytypeIDs.get(entity.type) : entitytypeIDs.get(Parameters.UNKNOWN);
+		return entitytypeIDs.containsKey(entity.type) ? entitytypeIDs.get(entity.type) : entitytypeIDs.get(CombineParameters.UNKNOWN);
 	}
 	
-	public String getRelationDict(Entity former, Entity latter, Tool tool)  {
-		if(former.type.equals("Chemical") && latter.type.equals("Disease") 
-				&& tool.sider.contains(former.text, latter.text)) {
-			return "ade";
-		} else if(former.type.equals("Disease") && latter.type.equals("Chemical")
-				&& tool.sider.contains(latter.text, former.text)) {
-			return "ade";
-		} else
-			return null;
-	}
+
 	
 	
 	
@@ -1383,14 +1198,14 @@ public class NNADE extends Father implements Serializable {
 			int curTran = prediction.labels.get(prediction.labels.size()-1);
 			if(curTran==1) { // new chemical
 				CoreLabel current = tokens.get(idx);
-				  Entity chem = new Entity(null, Parameters.CHEMICAL, current.beginPosition(), 
+				  Entity chem = new Entity(null, CombineParameters.CHEMICAL, current.beginPosition(), 
 						  current.word(), null);
 				  chem.start = idx;
 				  chem.end = idx;
 				  prediction.entities.add(chem);
 			} else if(curTran==2) {// new disease
 				CoreLabel current = tokens.get(idx);
-				  Entity disease = new Entity(null, Parameters.DISEASE, current.beginPosition(), 
+				  Entity disease = new Entity(null, CombineParameters.DISEASE, current.beginPosition(), 
 						  current.word(), null);
 				  disease.start = idx;
 				  disease.end = idx;
@@ -1425,7 +1240,7 @@ public class NNADE extends Father implements Serializable {
 			            // generate relations based on the latest label
 			            curTran = prediction.labels.get(prediction.labels.size()-1);
 			        	if(curTran == 5) { // connect
-							RelationEntity relationEntity = new RelationEntity(Parameters.RELATION, former, latter);
+							RelationEntity relationEntity = new RelationEntity(CombineParameters.RELATION, former, latter);
 							prediction.relations.add(relationEntity);
 			        	}
 
@@ -1453,7 +1268,7 @@ public class NNADE extends Father implements Serializable {
 	            // generate relations based on the latest label
 	            curTran = prediction.labels.get(prediction.labels.size()-1);
 	        	if(curTran == 5) { // connect
-					RelationEntity relationEntity = new RelationEntity(Parameters.RELATION, former, latter);
+					RelationEntity relationEntity = new RelationEntity(CombineParameters.RELATION, former, latter);
 					prediction.relations.add(relationEntity);
 	        	}
 
@@ -1470,119 +1285,6 @@ public class NNADE extends Father implements Serializable {
 		return predicted;
 	}
 	
-	public ADESentence decode_old(List<CoreLabel> tokens, DecodeStatistic stat, Tool tool) throws Exception {
-		ADESentence predicted = new ADESentence();
-		
-		List<Entity> tempEntities = new ArrayList<>();
-		/*
-		 * If the transition sequence is 1 0 3 3, we will have a bug when append.
-		 * Add a flag 'newed' to indicate an entity begin(true) or end(false).
-		 */
-		boolean newed = false;
-		int lastTran = -1;
-		int curTran = -1;
-		for(int idx=0;idx<tokens.size();idx++) {
-			// prepare the input for NN
-			Example ex = getExampleFeatures(tokens, idx, false, null, null, tool, null);
-			// get the transition given by NN
-			// other, newChemical, newDisease, append, notConnect, connect  
-			lastTran = curTran;
-			curTran = nn.giveTheBestChoice(ex);
-			stat.total++;
-			
-			// predict the entity based on the transition
-			if((lastTran==0 && curTran==0) || (lastTran==1 && curTran==0) || (lastTran==2 && curTran==0)
-				|| (lastTran==3 && curTran==0) || (lastTran==4 && curTran==0) || (lastTran==5 && curTran==0))
-			{ // no entity, just add a one-length non-entity segment
-				  
-			} else if((lastTran==0 && curTran==1) || (lastTran==1 && curTran==1) || (lastTran==2 && curTran==1)
-				|| (lastTran==3 && curTran==1) || (lastTran==4 && curTran==1) || (lastTran==5 && curTran==1)
-				|| (lastTran==-1 && curTran==1))
-			{ // new chemical
-				CoreLabel current = tokens.get(idx);
-				  Entity chem = new Entity(null, Parameters.CHEMICAL, current.beginPosition(), 
-						  current.word(), null);
-				  chem.start = idx;
-				  chem.end = idx;
-				  tempEntities.add(chem);
-				  newed = true;
-			} else if((lastTran==0 && curTran==2) || (lastTran==1 && curTran==2) || (lastTran==2 && curTran==2)
-				|| (lastTran==3 && curTran==2) || (lastTran==4 && curTran==2) || (lastTran==5 && curTran==2) 
-				|| (lastTran==-1 && curTran==2))
-			{// new disease
-				CoreLabel current = tokens.get(idx);
-				  Entity disease = new Entity(null, Parameters.DISEASE, current.beginPosition(), 
-						  current.word(), null);
-				  disease.start = idx;
-				  disease.end = idx;
-				  tempEntities.add(disease);
-				  newed = true;
-			} else if((lastTran==1 && curTran==3) || (lastTran==2 && curTran==3) || (lastTran==3 && curTran==3))
-			{ // append the current entity
-				if(newed == true) {
-					Entity old = tempEntities.get(tempEntities.size()-1);
-					CoreLabel current = tokens.get(idx);
-					int whitespaceToAdd = current.beginPosition()-(old.offset+old.text.length());
-					for(int j=0;j<whitespaceToAdd;j++)
-						old.text += " ";
-					old.text += current.word();
-					old.end = idx;
-				}
-				
-			} else if((lastTran==0 && curTran==3) || (lastTran==0 && curTran==4) || (lastTran==0 && curTran==5)
-				|| (lastTran==1 && curTran==4) || (lastTran==1 && curTran==5) || (lastTran==2 && curTran==4) ||
-				(lastTran==2 && curTran==5) || (lastTran==3 && curTran==4) || (lastTran==3 && curTran==5) ||
-				(lastTran==4 && curTran==4) || (lastTran==4 && curTran==5) || (lastTran==5 && curTran==4) ||
-				(lastTran==5 && curTran==5) || (lastTran==4 && curTran==3) || (lastTran==5 && curTran==3)) {
-				/*
-				 * wrong status
-				 * if last=other, current=append, 
-				 * or if current=4 or 5
-				 * or if last = 4 or 5, current = append
-				 */
-				stat.wrong++;
-			} else { // other but not wrong status
-				
-			}
-			
-			// if an entity ends, we should predict the relation between it and all the entities before it.
-			if((lastTran==1 && curTran==1) || (lastTran==1 && curTran==2) || (lastTran==1 && curTran==0)
-				|| (lastTran==2 && curTran==0) || (lastTran==2 && curTran==1) || (lastTran==2 && curTran==2)
-				|| (lastTran==3 && curTran==0) || (lastTran==3 && curTran==1) || (lastTran==3 && curTran==2))
-			{
-				// If the transition sequence is 0 3 0, we will have a bug here without the if statement.
-				if(newed == true) {
-					Entity latter = tempEntities.get(tempEntities.size()-1);
-					for(int j=0;j<tempEntities.size()-1;j++) {
-						Entity former = tempEntities.get(j);
-						Example relationExample = getExampleFeatures(tokens, idx, true, former, latter, tool, tempEntities);
-						lastTran = curTran;
-						curTran = nn.giveTheBestChoice(relationExample);
-						stat.total++;
-						
-						if(curTran == 4) { // not connect
-							
-						} else if(curTran == 5) { // connect
-							RelationEntity relationEntity = new RelationEntity(Parameters.RELATION, former, latter);
-							predicted.relaitons.add(relationEntity);
-						} else {
-							stat.wrong++;
-						}
-						
-					}
-				}
-				newed = false;
-			}
-			
-			
-		}
-		
-		
-		predicted.entities.addAll(tempEntities);
-				
-		return predicted;
-	}
-	
 	public List<CoreLabel> prepareNLPInfo(Tool tool, ADESentence sentence) {
 		ArrayList<CoreLabel> tokens = tool.tokenizer.tokenize(sentence.offset, sentence.text);
 		tool.tagger.tagCoreLabels(tokens);
@@ -1596,7 +1298,7 @@ public class NNADE extends Father implements Serializable {
 	 * Given a word, we will transform it based on the "wordPreprocess". 
 	 * Make sure call this function before send a word to NNADE.
 	 */
-	public static String wordPreprocess(CoreLabel token, Parameters parameters) {
+	public static String wordPreprocess(CoreLabel token, CombineParameters parameters) {
 		if(parameters.wordPreprocess == 0) {
 			return normalize_to_lowerwithdigit(token.word());
 		} else if(parameters.wordPreprocess == 1)
@@ -1604,7 +1306,7 @@ public class NNADE extends Father implements Serializable {
 		else if(parameters.wordPreprocess==2) {
 			return token.lemma().toLowerCase();
 		} else if(parameters.wordPreprocess==3) {
-			return NNADE.pipe(token.lemma().toLowerCase());
+			return Combine.pipe(token.lemma().toLowerCase());
 		} else {
 			return token.word().toLowerCase();
 		}
@@ -1647,12 +1349,11 @@ public class NNADE extends Father implements Serializable {
 		return new String(chs);
 	}
 
-	@Override
+
 	public double[][] getE() {
 		return E;
 	}
 
-	@Override
 	public double[][] getEg2E() {
 		// TODO Auto-generated method stub
 		return eg2E;
@@ -1660,20 +1361,17 @@ public class NNADE extends Father implements Serializable {
 	
 
 
-	@Override
-	public int getPositionID(int position) {
+	public List<String> getKnownWords1() {
 		// TODO Auto-generated method stub
-		return 0;
+		return knownWords1;
 	}
 
-	@Override
-	public List<String> getKnownWords() {
+	public List<String> getKnownWords2() {
 		// TODO Auto-generated method stub
-		return knownWords;
+		return knownWords2;
 	}
-
-
 
 }
+
 
 

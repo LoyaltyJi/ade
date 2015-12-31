@@ -17,17 +17,15 @@ import java.util.stream.IntStream;
 import cc.mallet.types.SparseVector;
 import cn.fox.math.Function;
 import gnu.trove.TIntArrayList;
-import gnu.trove.TIntHashSet;
-import gnu.trove.TIntIntHashMap;
-import gnu.trove.TIntIterator;
+
 
 // It's a simple version of NN, because there are no multi-hidden layers.
-public class NNSimple implements Serializable{
+public class CombineNN implements Serializable{
 	/**
 	 * 
 	 */
 	private static final long serialVersionUID = 1908284566872396134L;
-	public Parameters parameters;
+	public CombineParameters parameters;
 	/*
 	 *  the weights of the hidden layers
 	 *  for first hidden layer, hiddenSize x inputSize
@@ -58,15 +56,14 @@ public class NNSimple implements Serializable{
 	
 	public boolean debug;
 	
-	public Father owner;
+	public Combine owner;
 	
 	public int embFeatureNumber;
 	
-	public EntityCNN entityCNN;
-	public SentenceCNN sentenceCNN;
+	public CombineEntityCNN entityCNN;
 	
 		
-	public NNSimple(Parameters parameters, Father owner, TIntArrayList preComputed, Example example) {
+	public CombineNN(CombineParameters parameters, Combine owner, TIntArrayList preComputed, Example example) {
 		super();
 		this.parameters = parameters;
 		this.owner = owner;
@@ -107,10 +104,9 @@ public class NNSimple implements Serializable{
 	      preMap.put(preComputed.get(i), i);
 			    
 	    if(parameters.entityConvolution)
-	    	entityCNN = new EntityCNN(parameters, owner, debug);
+	    	entityCNN = new CombineEntityCNN(parameters, owner, debug);
 	    
-	    if(parameters.sentenceConvolution) 
-	    	sentenceCNN = new SentenceCNN(parameters, owner, debug);
+
 	}
 	
 	public int giveTheBestChoice(Example ex) throws Exception {
@@ -179,15 +175,7 @@ public class NNSimple implements Serializable{
         	}
         	offset += latterEmb.length;
         	
-        	if(parameters.sentenceConvolution) {
-	        	double[] sentenceEmb = sentenceCNN.forward(ex).emb;
-	        	for(int nodeIndex=0; nodeIndex<parameters.hiddenSize; nodeIndex++) {
-	        		for(int k=0; k< sentenceEmb.length; ++k) {
-	        			hidden[nodeIndex] += Wh[nodeIndex][offset+k] * sentenceEmb[k];
-	        		}
-	        	}
-	        	offset += sentenceEmb.length;
-        	}
+        	
         	
         }
         
@@ -234,10 +222,7 @@ public class NNSimple implements Serializable{
 	    if(parameters.entityConvolution)
 	    	entityKeeper = new EntityCNNGradientKeeper(parameters, entityCNN, keeper);
 	    keeper.entityKeeper = entityKeeper;
-	    SentenceCNNGradientKeeper sentenceKeeper = null;
-	    if(parameters.sentenceConvolution) 
-	    	sentenceKeeper = new SentenceCNNGradientKeeper(parameters, sentenceCNN, keeper);
-	    keeper.sentenceKeeper = sentenceKeeper;
+	    
 		
 	    double loss = 0;
 		double correct = 0;
@@ -293,15 +278,7 @@ public class NNSimple implements Serializable{
 	        	}
 	        	offset += latterEmb.length;
 	        	
-	        	if(parameters.sentenceConvolution) {
-		        	double[] sentenceEmb = sentenceCNN.forward(ex).emb;
-		        	for(int nodeIndex : ls) {
-		        		for (int k = 0; k < sentenceEmb.length; ++k) {
-		        			hidden[nodeIndex] += Wh[nodeIndex][offset+k] * sentenceEmb[k];
-		        		}
-		        	}
-		        	offset += sentenceEmb.length;
-	        	}
+	        	
 	        }
 	        
 	        // add bias and activation
@@ -393,13 +370,11 @@ public class NNSimple implements Serializable{
 							keeper.gradWh[nodeIndex][offset + k] += gradHidden[nodeIndex] * owner.getE()[tok][k];
 	        		  }
 	        		  
-	        		  if(parameters.bEmbeddingFineTune) {
+	        		  if(tok < owner.getKnownWords1().size() || 
+	        				  tok >= owner.getKnownWords1().size()+owner.getKnownWords2().size())  {
 	        			  for (int k = 0; k < parameters.embeddingSize; ++k) 
 	        				  keeper.gradE[tok][k] += gradHidden[nodeIndex] * Wh[nodeIndex][offset + k];
-	        		  } else if(tok >= owner.getKnownWords().size()) {
-	        			  for (int k = 0; k < parameters.embeddingSize; ++k) 
-	        				  keeper.gradE[tok][k] += gradHidden[nodeIndex] * Wh[nodeIndex][offset + k];
-	        		  }
+	        		  } 
 	        		  
 	        	  }
 	          }
@@ -439,19 +414,7 @@ public class NNSimple implements Serializable{
 	        		entityCNN.backward(latterError, ex.latterIdx, latterState, entityKeeper);
 	        	}
 	        	
-	        	if(parameters.sentenceConvolution) {
-	        		State sentenceState = sentenceCNN.forward(ex);
-	        		double[] sentenceEmb = sentenceState.emb;
-	        		double[] sentenceError = new double[sentenceEmb.length];
-	        		for(int nodeIndex : ls) {
-	        			for(int k=0; k<sentenceEmb.length; ++k) {
-	        				keeper.gradWh[nodeIndex][offset + k] += gradHidden[nodeIndex] * sentenceEmb[k];
-	        				sentenceError[k] += gradHidden[nodeIndex] * Wh[nodeIndex][offset+k];
-	        			}
-	        		}
-	        		offset += sentenceEmb.length;
-	        		sentenceCNN.backward(sentenceError, ex, sentenceState, sentenceKeeper);
-	        	}
+	        	
 	        	
 	        	
 	        }
@@ -471,10 +434,8 @@ public class NNSimple implements Serializable{
 	        	keeper.gradWh[j][offset + k] += gradSaved[mapX][j] * owner.getE()[tok][k];
 	          }
 	          
-	          if(parameters.bEmbeddingFineTune) {
-    			  for (int k = 0; k < parameters.embeddingSize; ++k) 
-    				  keeper.gradE[tok][k] += gradSaved[mapX][j] * Wh[j][offset + k];
-    		  } else if(tok >= owner.getKnownWords().size()) {
+	          if(tok < owner.getKnownWords1().size() || 
+    				  tok >= owner.getKnownWords1().size()+owner.getKnownWords2().size()) {
     			  for (int k = 0; k < parameters.embeddingSize; ++k) 
     				  keeper.gradE[tok][k] += gradSaved[mapX][j] * Wh[j][offset + k];
     		  }  
@@ -505,21 +466,18 @@ public class NNSimple implements Serializable{
 	        }
 	      }
 	
-	      if(parameters.bEmbeddingFineTune) {
-	    	  for (int i = 0; i < owner.getE().length; ++i) {
-	  	        for (int j = 0; j < owner.getE()[i].length; ++j) {
-	  	          loss += parameters.regParameter * owner.getE()[i][j] * owner.getE()[i][j] / 2.0;
-	  	          keeper.gradE[i][j] += parameters.regParameter * owner.getE()[i][j];
-	  	        }
-	  	      }
-	      } else {
-	    	  for (int i = owner.getKnownWords().size(); i < owner.getE().length; ++i) {
-	  	        for (int j = 0; j < owner.getE()[i].length; ++j) {
-	  	          loss += parameters.regParameter * owner.getE()[i][j] * owner.getE()[i][j] / 2.0;
-	  	          keeper.gradE[i][j] += parameters.regParameter * owner.getE()[i][j];
-	  	        }
-		  	  }
-	      }
+	     
+    	  for (int i = 0; i < owner.getE().length; ++i) {
+    		if(i < owner.getKnownWords1().size() || 
+    				  i >= owner.getKnownWords1().size()+owner.getKnownWords2().size()) {
+    			for (int j = 0; j < owner.getE()[i].length; ++j) {
+  	  	          loss += parameters.regParameter * owner.getE()[i][j] * owner.getE()[i][j] / 2.0;
+  	  	          keeper.gradE[i][j] += parameters.regParameter * owner.getE()[i][j];
+  	  	        }
+        	}
+  	        
+  	      }
+	       
 	      
 		
 		if(debug)
@@ -552,27 +510,23 @@ public class NNSimple implements Serializable{
 	      }
 	    }
 
-	    if(parameters.bEmbeddingFineTune) {
+	    
 	    	for (int i = 0; i < owner.getE().length; ++i) {
-	  	      for (int j = 0; j < owner.getE()[i].length; ++j) {
-	  	    	owner.getEg2E()[i][j] += keeper.gradE[i][j] * keeper.gradE[i][j];
-	  	    	owner.getE()[i][j] -= parameters.adaAlpha * keeper.gradE[i][j] / Math.sqrt(owner.getEg2E()[i][j] + parameters.adaEps);
-	  	      }
+	    		if(i < owner.getKnownWords1().size() || 
+	    				  i >= owner.getKnownWords1().size()+owner.getKnownWords2().size()) {
+	    			for (int j = 0; j < owner.getE()[i].length; ++j) {
+	    	  	    	owner.getEg2E()[i][j] += keeper.gradE[i][j] * keeper.gradE[i][j];
+	    	  	    	owner.getE()[i][j] -= parameters.adaAlpha * keeper.gradE[i][j] / Math.sqrt(owner.getEg2E()[i][j] + parameters.adaEps);
+	    	  	      }
+	    		}
+	  	      
 	  	    }
-	    } else {
-	    	for (int i = owner.getKnownWords().size(); i < owner.getE().length; ++i) {
-	  	      for (int j = 0; j < owner.getE()[i].length; ++j) {
-	  	    	owner.getEg2E()[i][j] += keeper.gradE[i][j] * keeper.gradE[i][j];
-	  	    	owner.getE()[i][j] -= parameters.adaAlpha * keeper.gradE[i][j] / Math.sqrt(owner.getEg2E()[i][j] + parameters.adaEps);
-	  	      }
-	  	    }
-	    }
+	    
 	    
 	    if(parameters.entityConvolution)
 	    	entityCNN.updateWeights(keeper.entityKeeper);
 	    
-	    if(parameters.sentenceConvolution)
-	    	sentenceCNN.updateWeights(keeper.sentenceKeeper);
+	    
 	}
 
 

@@ -1,4 +1,4 @@
-package sparse_pipeline;
+package nn;
 
 public class BestPerformance {
 	public double dev_pEntity = -1;
@@ -13,5 +13,5 @@ public class BestPerformance {
 	public double test_f1Entity= -1;
 	public double test_pRelation= -1;
 	public double test_rRelation= -1;
-	public double test_f1Relation= -1; 
+	public double test_f1Relation= -1; 	
 }

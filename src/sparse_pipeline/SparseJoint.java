@@ -98,6 +98,9 @@ public class SparseJoint extends Father implements Serializable {
 		List<BestPerformance> bestAll = new ArrayList<>();
 		for(int i=0;i<groups.size();i++) {
 			Set<String> group = groups.get(i);
+			Set<String> groupDev = groups.get((i+1)%groups.size());
+			
+			List<Abstract> devAb = new ArrayList<>();
 			List<Abstract> trainAb = new ArrayList<>();
 			List<Abstract> testAb = new ArrayList<>();
 			for(File abstractFile:fAbstractDir.listFiles()) {
@@ -105,6 +108,9 @@ public class SparseJoint extends Father implements Serializable {
 				if(group.contains(ab.id)) {
 					// test abstract
 					testAb.add(ab);
+				} else if(groupDev.contains(ab.id)) {
+					// dev abstract
+					devAb.add(ab);
 				} else {
 					// train abstract
 					trainAb.add(ab);
@@ -116,38 +122,62 @@ public class SparseJoint extends Father implements Serializable {
 			SparseJoint joint = new SparseJoint(parameters);
 			
 			System.out.println(Parameters.SEPARATOR+" group "+i);
-			BestPerformance best = joint.trainAndTest(trainAb, testAb,modelFile+i, tool, debug);
+			BestPerformance best = joint.trainAndTest(trainAb, devAb, testAb,modelFile+i, tool, debug);
 			bestAll.add(best);
 			
 		}
 		
-		// macro performance
-		double macroP_Entity = 0;
-		double macroR_Entity = 0;
-		double macroF1_Entity = 0;
-		double macroP_Relation = 0;
-		double macroR_Relation = 0;
-		double macroF1_Relation = 0;
-		double fold = bestAll.size();
+		// dev
+		double pDev_Entity = 0;
+		double rDev_Entity = 0;
+		double f1Dev_Entity = 0;
+		double pDev_Relation = 0;
+		double rDev_Relation = 0;
+		double f1Dev_Relation = 0;
 		for(BestPerformance best:bestAll) {
-			macroP_Entity += best.pEntity/fold; 
-			macroR_Entity += best.rEntity/fold;
-			macroP_Relation += best.pRelation/fold;
-			macroR_Relation += best.rRelation/fold;
+			pDev_Entity += best.dev_pEntity/bestAll.size(); 
+			rDev_Entity += best.dev_rEntity/bestAll.size();
+			pDev_Relation += best.dev_pRelation/bestAll.size();
+			rDev_Relation += best.dev_rRelation/bestAll.size();
 		}
-		macroF1_Entity = Evaluater.getFMeasure(macroP_Entity, macroR_Entity, 1);
-		macroF1_Relation = Evaluater.getFMeasure(macroP_Relation, macroR_Relation, 1);
+		f1Dev_Entity = Evaluater.getFMeasure(pDev_Entity, rDev_Entity, 1);
+		f1Dev_Relation = Evaluater.getFMeasure(pDev_Relation, rDev_Relation, 1);
 		
-		System.out.println("macro entity precision\t"+macroP_Entity);
-        System.out.println("macro entity recall\t"+macroR_Entity);
-        System.out.println("macro entity f1\t"+macroF1_Entity);
-        System.out.println("macro relation precision\t"+macroP_Relation);
-        System.out.println("macro relation recall\t"+macroR_Relation);
-        System.out.println("macro relation f1\t"+macroF1_Relation);
+		System.out.println("dev entity precision\t"+pDev_Entity);
+        System.out.println("dev entity recall\t"+rDev_Entity);
+        System.out.println("dev entity f1\t"+f1Dev_Entity);
+        System.out.println("dev relation precision\t"+pDev_Relation);
+        System.out.println("dev relation recall\t"+rDev_Relation);
+        System.out.println("dev relation f1\t"+f1Dev_Relation);
+        
+        
+        // test
+        double pTest_Entity = 0;
+		double rTest_Entity = 0;
+		double f1Test_Entity = 0;
+		double pTest_Relation = 0;
+		double rTest_Relation = 0;
+		double f1Test_Relation = 0;
+		for(BestPerformance best:bestAll) {
+			pTest_Entity += best.test_pEntity/bestAll.size(); 
+			rTest_Entity += best.test_rEntity/bestAll.size();
+			pTest_Relation += best.test_pRelation/bestAll.size();
+			rTest_Relation += best.test_rRelation/bestAll.size();
+		}
+		f1Test_Entity = Evaluater.getFMeasure(pTest_Entity, rTest_Entity, 1);
+		f1Test_Relation = Evaluater.getFMeasure(pTest_Relation, rTest_Relation, 1);
+		
+		System.out.println("test entity precision\t"+pTest_Entity);
+        System.out.println("test entity recall\t"+rTest_Entity);
+        System.out.println("test entity f1\t"+f1Test_Entity);
+        System.out.println("test relation precision\t"+pTest_Relation);
+        System.out.println("test relation recall\t"+rTest_Relation);
+        System.out.println("test relation f1\t"+f1Test_Relation);
 
 	} 
 	
-	public BestPerformance trainAndTest(List<Abstract> trainAbs, List<Abstract> testAbs, String modelFile, 
+	public BestPerformance trainAndTest(List<Abstract> trainAbs, List<Abstract> devAbs, 
+			List<Abstract> testAbs, String modelFile, 
 			Tool tool, boolean debug) 
 		throws Exception {
 		
@@ -190,21 +220,22 @@ public class SparseJoint extends Father implements Serializable {
 			
 			
 			if (iter>0 && iter % parameters.evalPerIter == 0) {
-				evaluate(tool, testAbs, modelFile, best);
+				evaluate(tool, devAbs, testAbs, modelFile, best);
 			}			
 		}
 		
-		evaluate(tool, testAbs, modelFile, best);
+		evaluate(tool, devAbs, testAbs, modelFile, best);
 		
 		return best;
 	}
 	
-	public void evaluate(Tool tool, List<Abstract> testAbs, String modelFile, BestPerformance best)
+	public void evaluate(Tool tool, List<Abstract> devAbs, 
+			List<Abstract> testAbs, String modelFile, BestPerformance best)
 			throws Exception {
 		
         DecodeStatistic stat = new DecodeStatistic();
-        for(Abstract testAb:testAbs) {
-        	for(ADESentence gold:testAb.sentences) {
+        for(Abstract devAb:devAbs) {
+        	for(ADESentence gold:devAb.sentences) {
         		List<CoreLabel> tokens = ClassifierEntity.prepareNLPInfo(tool, gold);
         		ADESentence predicted = null;
         		predicted = decode(tokens, tool);
@@ -228,32 +259,79 @@ public class SparseJoint extends Father implements Serializable {
         }
         
         System.out.println(Parameters.SEPARATOR);
-        System.out.println("transiton wrong rate "+stat.getWrongRate());
-        double pEntity = stat.getEntityPrecision();
-        System.out.println("entity precision\t"+pEntity);
-        double rEntity = stat.getEntityRecall();
-        System.out.println("entity recall\t"+rEntity);
-        double f1Entity = stat.getEntityF1();
-        System.out.println("entity f1\t"+f1Entity);
-        double pRelation = stat.getRelationPrecision();
-        System.out.println("relation precision\t"+pRelation);
-        double rRelation = stat.getRelationRecall();
-        System.out.println("relation recall\t"+rRelation);
-        double f1Relation = stat.getRelationF1();
-        System.out.println("relation f1\t"+f1Relation);
-        System.out.println(Parameters.SEPARATOR);
+        double dev_pEntity = stat.getEntityPrecision();
+        System.out.println("dev entity precision\t"+dev_pEntity);
+        double dev_rEntity = stat.getEntityRecall();
+        System.out.println("dev entity recall\t"+dev_rEntity);
+        double dev_f1Entity = stat.getEntityF1();
+        System.out.println("dev entity f1\t"+dev_f1Entity);
+        double dev_pRelation = stat.getRelationPrecision();
+        System.out.println("dev relation precision\t"+dev_pRelation);
+        double dev_rRelation = stat.getRelationRecall();
+        System.out.println("dev relation recall\t"+dev_rRelation);
+        double dev_f1Relation = stat.getRelationF1();
+        System.out.println("dev relation f1\t"+dev_f1Relation);
 
         	
-        if ((f1Relation > best.f1Relation) || (f1Relation==best.f1Relation && f1Entity>best.f1Entity)) {
+        if ((dev_f1Relation > best.dev_f1Relation) || (dev_f1Relation==best.dev_f1Relation && dev_f1Entity>best.dev_f1Entity)) {
         //if ((f1Entity > best.f1Entity)) {
           System.out.printf("Current Exceeds the best! Saving model file %s\n", modelFile);
-          best.pEntity = pEntity;
-          best.rEntity = rEntity;
-          best.f1Entity = f1Entity;
-          best.pRelation = pRelation;
-          best.rRelation = rRelation;
-          best.f1Relation = f1Relation;
+          best.dev_pEntity = dev_pEntity;
+          best.dev_rEntity = dev_rEntity;
+          best.dev_f1Entity = dev_f1Entity;
+          best.dev_pRelation = dev_pRelation;
+          best.dev_rRelation = dev_rRelation;
+          best.dev_f1Relation = dev_f1Relation;
           //ObjectSerializer.writeObjectToFile(this, modelFile);
+          
+          // the current outperforms the prior on dev, so we evaluate on test and record the performance
+          DecodeStatistic stat2 = new DecodeStatistic();
+          for(Abstract testAb:testAbs) {
+          	for(ADESentence gold:testAb.sentences) {
+          		List<CoreLabel> tokens = ClassifierEntity.prepareNLPInfo(tool, gold);
+          		ADESentence predicted = null;
+          		predicted = decode(tokens, tool);
+          		
+          		stat2.ctPredictEntity += predicted.entities.size();
+          		stat2.ctTrueEntity += gold.entities.size();
+          		for(Entity preEntity:predicted.entities) {
+          			if(gold.entities.contains(preEntity))
+          				stat2.ctCorrectEntity++;
+      			}
+          		
+          		stat2.ctPredictRelation += predicted.relaitons.size();
+        		stat2.ctTrueRelation += gold.relaitons.size();
+        		for(RelationEntity preRelation:predicted.relaitons) {
+        			if(gold.relaitons.contains(preRelation))
+        				stat2.ctCorrectRelation++;
+        		}
+          		
+          	}
+          }
+          
+          
+          double test_pEntity = stat2.getEntityPrecision();
+          System.out.println("test entity precision\t"+test_pEntity);
+          double test_rEntity = stat2.getEntityRecall();
+          System.out.println("test entity recall\t"+test_rEntity);
+          double test_f1Entity = stat2.getEntityF1();
+          System.out.println("test entity f1\t"+test_f1Entity);
+          double test_pRelation = stat2.getRelationPrecision();
+          System.out.println("test relation precision\t"+test_pRelation);
+          double test_rRelation = stat2.getRelationRecall();
+          System.out.println("test relation recall\t"+test_rRelation);
+          double test_f1Relation = stat2.getRelationF1();
+          System.out.println("test relation f1\t"+test_f1Relation);
+          System.out.println(Parameters.SEPARATOR);
+          // update the best test performance
+          best.test_pEntity = test_pEntity;
+          best.test_rEntity = test_rEntity;
+          best.test_f1Entity = test_f1Entity;
+          best.test_pRelation = test_pRelation;
+          best.test_rRelation = test_rRelation;
+          best.test_f1Relation = test_f1Relation;
+        } else {
+        	System.out.println(Parameters.SEPARATOR);
         }
         
 	}

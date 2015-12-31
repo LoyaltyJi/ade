@@ -46,7 +46,7 @@ import gnu.trove.TObjectIntHashMap;
 import utils.ADESentence;
 import utils.Abstract;
 
-public class NNADE extends Father implements Serializable {
+public class NNADE_basic extends Father implements Serializable {
 
 	/**
 	 * 
@@ -90,7 +90,7 @@ public class NNADE extends Father implements Serializable {
 	public boolean debug;
 	
 
-	public NNADE(Parameters parameters) {
+	public NNADE_basic(Parameters parameters) {
 		
 		this.parameters = parameters;
 	}
@@ -195,7 +195,7 @@ public class NNADE extends Father implements Serializable {
 
 			}
 			
-			NNADE nnade = new NNADE(parameters);
+			NNADE_basic nnade = new NNADE_basic(parameters);
 			nnade.debug = Boolean.parseBoolean(args[1]);
 			//nnade.brownCluster = brown;
 			//nnade.wordnet = dict;
@@ -921,70 +921,7 @@ public class NNADE extends Father implements Serializable {
 				}
 			}
 			
-			// current brown
-			example.featureIdx.add(getBrownID(getBrown(tokens.get(idx), tool)));
 			
-			// context brown
-			for(int i=0;i<2;i++) {
-				int idxBefore = idx-1-i;
-				if(idxBefore>=0) {
-					example.featureIdx.add(getBrownID(getBrown(tokens.get(idxBefore), tool)));
-				} else {
-					example.featureIdx.add(getBrownID(Parameters.PADDING));
-				}
-			}
-			for(int i=0;i<2;i++) {
-				int idxAfter = idx+1+i;
-				if(idxAfter<=tokens.size()-1) {
-					example.featureIdx.add(getBrownID(getBrown(tokens.get(idxAfter), tool)));
-				} else {
-					example.featureIdx.add(getBrownID(Parameters.PADDING));
-				}
-			}
-			
-			// current synset
-			example.featureIdx.add(getSynsetID(getSynset(tokens.get(idx), tool)));
-			
-			// context synset
-			for(int i=0;i<2;i++) {
-				int idxBefore = idx-1-i;
-				if(idxBefore>=0) {
-					example.featureIdx.add(getSynsetID(getSynset(tokens.get(idxBefore), tool)));
-				} else {
-					example.featureIdx.add(getSynsetID(Parameters.PADDING));
-				}
-			}
-			for(int i=0;i<2;i++) {
-				int idxAfter = idx+1+i;
-				if(idxAfter<=tokens.size()-1) {
-					example.featureIdx.add(getSynsetID(getSynset(tokens.get(idxAfter), tool)));
-				} else {
-					example.featureIdx.add(getSynsetID(Parameters.PADDING));
-				}
-			}
-			
-			// current hyper
-			example.featureIdx.add(getHyperID(getHyper(tokens.get(idx), tool)));
-			
-			// current dict
-			example.featureIdx.add(getDictID(getDict(tokens.get(idx), tool)));
-			// context dict
-			for(int i=0;i<2;i++) {
-				int idxBefore = idx-1-i;
-				if(idxBefore>=0) {
-					example.featureIdx.add(getDictID(getDict(tokens.get(idxBefore), tool)));
-				} else {
-					example.featureIdx.add(getDictID(Parameters.PADDING));
-				}
-			}
-			for(int i=0;i<2;i++) {
-				int idxAfter = idx+1+i;
-				if(idxAfter<=tokens.size()-1) {
-					example.featureIdx.add(getDictID(getDict(tokens.get(idxAfter), tool)));
-				} else {
-					example.featureIdx.add(getDictID(Parameters.PADDING));
-				}
-			}
 			
 			/** 
 			 * The ones below are relation features.
@@ -1002,11 +939,7 @@ public class NNADE extends Father implements Serializable {
 			example.featureIdx.add(-1);
 			example.featureIdx.add(-1);
 			
-			// entity wordnet
-			example.featureIdx.add(-1);
-			example.featureIdx.add(-1);
-			example.featureIdx.add(-1);
-			example.featureIdx.add(-1);
+			
 			
 					
 			
@@ -1058,40 +991,7 @@ public class NNADE extends Father implements Serializable {
 				example.featureIdx.add(-1);
 			}
 			
-			// current brown 
-			example.featureIdx.add(-1);
 			
-			// context brown
-			for(int i=0;i<2;i++) {
-				example.featureIdx.add(-1);
-			}
-			for(int i=0;i<2;i++) {
-				example.featureIdx.add(-1);
-			}
-			
-			// current synset
-			example.featureIdx.add(-1);
-			
-			// context synset
-			for(int i=0;i<2;i++) {
-				example.featureIdx.add(-1);
-			}
-			for(int i=0;i<2;i++) {
-				example.featureIdx.add(-1);
-			}
-			
-			// current hyper
-			example.featureIdx.add(-1);
-						
-			// current dict
-			example.featureIdx.add(-1);
-			// context dict
-			for(int i=0;i<2;i++) {
-				example.featureIdx.add(-1);
-			}
-			for(int i=0;i<2;i++) {
-				example.featureIdx.add(-1);
-			}
 			
 			/** 
 			 * The ones below are relation features.
@@ -1120,11 +1020,7 @@ public class NNADE extends Father implements Serializable {
 			example.featureIdx.add(getEntityTypeID(former));
 			example.featureIdx.add(getEntityTypeID(latter));
 			
-			// entity wordnet
-			example.featureIdx.add(getSynsetID(getSynset(former.text, tool)));
-			example.featureIdx.add(getSynsetID(getSynset(latter.text, tool)));
-			example.featureIdx.add(getHyperID(getHyper(former.text, tool)));
-			example.featureIdx.add(getHyperID(getHyper(latter.text, tool)));
+			
 			
 									
 			/*
@@ -1604,7 +1500,7 @@ public class NNADE extends Father implements Serializable {
 		else if(parameters.wordPreprocess==2) {
 			return token.lemma().toLowerCase();
 		} else if(parameters.wordPreprocess==3) {
-			return NNADE.pipe(token.lemma().toLowerCase());
+			return NNADE_basic.pipe(token.lemma().toLowerCase());
 		} else {
 			return token.word().toLowerCase();
 		}
@@ -1675,5 +1571,7 @@ public class NNADE extends Father implements Serializable {
 
 
 }
+
+
 
 

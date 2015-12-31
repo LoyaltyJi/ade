@@ -1393,6 +1393,14 @@ public class PerceptronNNADE extends Father implements Serializable {
 		return eg2E;
 	}
 
+	@Override
+	public List<String> getKnownWords() {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+
+
 }
 
 
