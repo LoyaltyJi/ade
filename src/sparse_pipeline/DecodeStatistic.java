@@ -13,6 +13,25 @@ class DecodeStatistic {
 	public int ctTrueRelation = 0;
 	public int ctCorrectRelation = 0;
 	
+	public double getEntityTP() {
+		return ctCorrectEntity;
+	}
+	public double getEntityFP() {
+		return ctPredictEntity-ctCorrectEntity;
+	}
+	public double getEntityFN() {
+		return ctTrueEntity-ctCorrectEntity;
+	}
+	public double getRelationTP() {
+		return ctCorrectRelation;
+	}
+	public double getRelationFP() {
+		return ctPredictRelation-ctCorrectRelation;
+	}
+	public double getRelationFN() {
+		return ctTrueRelation-ctCorrectRelation;
+	}
+	
 	public double getWrongRate() {
 		return wrong*1.0/total;
 	}

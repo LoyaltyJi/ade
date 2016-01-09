@@ -35,8 +35,7 @@ public class Parameters implements Serializable{
 	  public int evalPerIter = 100;
 	  
 	  
-	  public double batchEntityPercent = 0.1;
-	  public double batchRelationPercent = 0.1;
+	  public int batchSize = 50;
 
 	  public Parameters(Properties properties) {
 	    setProperties(properties);
@@ -50,8 +49,7 @@ public class Parameters implements Serializable{
 		adaAlpha = PropertiesUtils.getDouble(props, "adaAlpha", adaAlpha);
 		regParameter = PropertiesUtils.getDouble(props, "regParameter", regParameter);
 		evalPerIter = PropertiesUtils.getInt(props, "evalPerIter", evalPerIter);
-		batchEntityPercent = PropertiesUtils.getDouble(props, "batchEntityPercent", batchEntityPercent);
-		batchRelationPercent = PropertiesUtils.getDouble(props, "batchRelationPercent", batchRelationPercent);
+		batchSize = PropertiesUtils.getInt(props, "batchSize", batchSize);
 		
 		
 
@@ -67,8 +65,7 @@ public class Parameters implements Serializable{
 		System.out.printf("regParameter = %.2g%n", regParameter);
 		System.out.printf("evalPerIter = %d%n", evalPerIter);
 		
-		System.out.printf("batchEntityPercent = %.2g%n", batchEntityPercent);
-		System.out.printf("batchRelationPercent = %.2g%n", batchRelationPercent);
+		System.out.printf("batchSize = %d%n", batchSize);
 
 		System.out.println(SEPARATOR);
 	  }

@@ -12,7 +12,10 @@ import java.util.List;
 import java.util.Properties;
 import java.util.Set;
 
+import javax.management.relation.Relation;
+
 import cn.fox.biomedical.Dictionary;
+import cn.fox.biomedical.Sider;
 import cn.fox.machine_learning.BrownCluster;
 import cn.fox.stanford.Tokenizer;
 import cn.fox.utils.Evaluater;
@@ -28,6 +31,7 @@ import edu.stanford.nlp.ling.CoreLabel;
 import edu.stanford.nlp.process.Morphology;
 import edu.stanford.nlp.tagger.maxent.MaxentTagger;
 import edu.stanford.nlp.util.PropertiesUtils;
+import gnu.trove.TIntArrayList;
 import gnu.trove.TObjectIntHashMap;
 import utils.ADESentence;
 import utils.Abstract;
@@ -95,6 +99,9 @@ public class SparseJoint extends Father implements Serializable {
 		tool.ctdmedic = ctdmedic;
 		tool.humando = humando;
 		
+		Sider sider = new Sider(PropertiesUtils.getString(properties, "sider_dict", ""));
+		tool.sider = sider;
+		
 		List<BestPerformance> bestAll = new ArrayList<>();
 		for(int i=0;i<groups.size();i++) {
 			Set<String> group = groups.get(i);
@@ -125,6 +132,7 @@ public class SparseJoint extends Father implements Serializable {
 			BestPerformance best = joint.trainAndTest(trainAb, devAb, testAb,modelFile+i, tool, debug);
 			bestAll.add(best);
 			
+			break;
 		}
 		
 		// dev
@@ -184,8 +192,7 @@ public class SparseJoint extends Father implements Serializable {
 		// generate training examples
 		// generate alphabet simultaneously
 		featureIDs = new TObjectIntHashMap<>();
-		List<Example> exampleEntity = generateEntityTrainExamples(trainAbs, tool);
-		List<Example> exampleRelation = generateRelationTrainExamples(trainAbs, tool);
+		List<Example> examples = generateTrainExamples(trainAbs, tool);
 		freezeAlphabet = true;
 		System.out.println("Total sparse feature number: "+featureIDs.size());
 		// new a NN and initialize its weight
@@ -195,46 +202,55 @@ public class SparseJoint extends Father implements Serializable {
 		long startTime = System.currentTimeMillis();
 		BestPerformance best = new BestPerformance();
 		
+		int inputSize = examples.size();
+		int batchBlock = inputSize / parameters.batchSize;
+		if (inputSize % parameters.batchSize != 0)
+			batchBlock++;
+		
+		  TIntArrayList indexes = new TIntArrayList();
+		  for (int i = 0; i < inputSize; ++i)
+		    indexes.add(i);
+		  
+		  List<Example> subExamples = new ArrayList<>();
+		
 		for (int iter = 0; iter < parameters.maxIter; ++iter) {
-						
-			// mini-batch
-			int batchSizeEntity = (int)(exampleEntity.size()*parameters.batchEntityPercent);
-			if(batchSizeEntity == 0)
-				batchSizeEntity++;
-			List<Example> batchExampleEntity = Util.getRandomSubList(exampleEntity, batchSizeEntity);
 			
-			int batchSizeRelation = (int)(exampleRelation.size()*parameters.batchRelationPercent);
-			if(batchSizeRelation == 0)
-				batchSizeRelation++;
-			List<Example> batchExampleRelation = Util.getRandomSubList(exampleRelation, batchSizeRelation);
-			
-			
-			List<Example> examples = new ArrayList<>();
-			examples.addAll(batchExampleEntity);
-			examples.addAll(batchExampleRelation);
-			
-			GradientKeeper keeper = sparse.process(examples);
-			
-			//sparse.checkGradients(keeper, batchExampleEntity);
-			sparse.updateWeights(keeper);
-			
-			
+			for (int updateIter = 0; updateIter < batchBlock; updateIter++) {
+				subExamples.clear();
+				int start_pos = updateIter * parameters.batchSize;
+				int end_pos = (updateIter + 1) * parameters.batchSize;
+				if (end_pos > inputSize)
+					end_pos = inputSize;
+
+				for (int idy = start_pos; idy < end_pos; idy++) {
+					subExamples.add(examples.get(indexes.get(idy)));
+				}
+				
+				GradientKeeper keeper = sparse.process(subExamples);
+				sparse.updateWeights(keeper);
+			}
+								
 			if (iter>0 && iter % parameters.evalPerIter == 0) {
-				evaluate(tool, devAbs, testAbs, modelFile, best);
+				evaluate(tool, devAbs, testAbs, modelFile, best, false);
 			}			
 		}
 		
-		evaluate(tool, devAbs, testAbs, modelFile, best);
+		evaluate(tool, devAbs, testAbs, modelFile, best, true);
 		
 		return best;
 	}
 	
 	public void evaluate(Tool tool, List<Abstract> devAbs, 
-			List<Abstract> testAbs, String modelFile, BestPerformance best)
+			List<Abstract> testAbs, String modelFile, BestPerformance best, boolean printerror)
 			throws Exception {
 		
         DecodeStatistic stat = new DecodeStatistic();
         for(Abstract devAb:devAbs) {
+        	if(printerror) {
+	        	System.out.println(Parameters.SEPARATOR);
+	        	System.out.println("Document: "+devAb.id);
+        	}
+        	
         	for(ADESentence gold:devAb.sentences) {
         		List<CoreLabel> tokens = ClassifierEntity.prepareNLPInfo(tool, gold);
         		ADESentence predicted = null;
@@ -254,8 +270,38 @@ public class SparseJoint extends Father implements Serializable {
         			if(gold.relaitons.contains(preRelation))
         				stat.ctCorrectRelation++;
         		}
+        		
+        		if(printerror) {
+	        		System.out.println("Gold Entity: ");
+	        		for(Entity entity:gold.entities)
+	        			System.out.println(entity);
+	        		System.out.println("Predict Entity: ");
+	        		for(Entity entity:predicted.entities)
+	        			System.out.println(entity);
+	        		System.out.println("Gold relation: ");
+	        		for(RelationEntity re:gold.relaitons)
+	        			System.out.println(re);
+	        		System.out.println("Predict relation: ");
+	        		for(RelationEntity re:predicted.relaitons)
+	        			System.out.println(re);
+        		}
 
         	}
+        	
+        	if(printerror)
+        		System.out.println(Parameters.SEPARATOR);
+        }
+        
+        if(printerror) {
+	        System.out.println(Parameters.SEPARATOR);
+	        System.out.println(stat.getEntityTP());
+	        System.out.println(stat.getEntityFP());
+	        System.out.println(stat.getEntityFN());
+	        System.out.println(stat.getRelationTP());
+	        System.out.println(stat.getRelationFP());
+	        System.out.println(stat.getRelationFN());
+	        System.out.println(Parameters.SEPARATOR);
+	        return;
         }
         
         System.out.println(Parameters.SEPARATOR);
@@ -340,7 +386,7 @@ public class SparseJoint extends Father implements Serializable {
 		Prediction prediction = new Prediction();
 		for(int idx=0;idx<tokens.size();idx++) {
 			// prepare the input for NN
-			Example ex = getExampleFeatures(tokens, idx, false, null, null, tool);
+			Example ex = getExampleFeatures(tokens, idx, false, null, null, tool, prediction);
 			int transition = sparse.giveTheBestChoice(ex);
 			prediction.addLabel(transition, -1);
 				
@@ -383,7 +429,9 @@ public class SparseJoint extends Father implements Serializable {
 					Entity latter = prediction.entities.get(latterIdx);
 					for(int j=0;j<latterIdx;j++) {
 						Entity former = prediction.entities.get(j);
-						Example relationExample = getExampleFeatures(tokens, idx, true, former, latter, tool);
+						if(latter.type.equals(former.type))
+							continue;
+						Example relationExample = getExampleFeatures(tokens, -1, true, former, latter, tool, prediction);
 						transition = sparse.giveTheBestChoice(relationExample);
 						prediction.addLabel(transition,-1);
 
@@ -395,6 +443,10 @@ public class SparseJoint extends Father implements Serializable {
 			        	}
 
 					}
+					
+					
+					
+					
 				}
 				
 			}
@@ -411,7 +463,9 @@ public class SparseJoint extends Father implements Serializable {
 
 			for(int j=0;j<latterIdx;j++) {
 				Entity former = prediction.entities.get(j);
-				Example relationExample = getExampleFeatures(tokens, tokens.size()-1, true, former, latter, tool);
+				if(latter.type.equals(former.type))
+					continue;
+				Example relationExample = getExampleFeatures(tokens, -1, true, former, latter, tool, prediction);
 				int transition = sparse.giveTheBestChoice(relationExample);
 				prediction.addLabel(transition, -1);
 
@@ -435,61 +489,9 @@ public class SparseJoint extends Father implements Serializable {
 		return predicted;
 	}
 	
-	public List<Example> generateEntityTrainExamples(List<Abstract> trainAbs, Tool tool)
-			throws Exception {
-		List<Example> ret = new ArrayList<>();
-				
-		for(Abstract ab:trainAbs) { 
-			for(ADESentence sentence:ab.sentences) {
-				// for each sentence
-				List<CoreLabel> tokens = ClassifierEntity.prepareNLPInfo(tool, sentence);
-				// resort the entities in the sentence
-				List<Entity> entities = Util.resortEntity(sentence);
-				
-				// for each token, we generate an entity example
-				for(int idx=0;idx<tokens.size();idx++) {
-					Example example = getExampleFeatures(tokens, idx, false, null, null, tool);
-					double[] goldLabel = {0,0,0,0,0,0};
-					CoreLabel token = tokens.get(idx);
-					
-					int index = Util.isInsideAGoldEntityAndReturnIt(token.beginPosition(), token.endPosition(), entities);
-					
-					if(index == -1) {
-						// other
-						goldLabel[0] = 1;
-					} else {
-						Entity gold = entities.get(index);
-						if(Util.isFirstWordOfEntity(gold, token)) {
-							if(gold.type.equals(Parameters.CHEMICAL)) {
-								// new chemical
-								goldLabel[1] = 1;
-							} else {
-								// new disease
-								goldLabel[2] = 1;
-							}
-						} else {
-							// append
-							goldLabel[3] = 1;
-						}
-						
-						
-					}
-					
-					example.label = goldLabel;
-					ret.add(example);
-					
-										
-				}
-				
-				
-			}
-		}
+	public List<Example> generateTrainExamples(List<Abstract> trainAbs, Tool tool)
+			throws Exception  {
 		
-		return ret;
-	}
-	
-	public List<Example> generateRelationTrainExamples(List<Abstract> trainAbs, Tool tool)
-			throws Exception {
 		List<Example> ret = new ArrayList<>();
 				
 		for(Abstract ab:trainAbs) { 
@@ -499,39 +501,165 @@ public class SparseJoint extends Father implements Serializable {
 				// resort the entities in the sentence
 				List<Entity> entities = Util.resortEntity(sentence);
 				// fill 'start' and 'end' of the entities
-				Util.fillEntity(entities, tokens);
+				//Util.fillEntity(entities, tokens);
 				
-				// for each entity pair, we generate a relation example
-				for(int i=0;i<entities.size();i++) {
-					Entity latter = entities.get(i);
-					for(int j=0;j<i;j++) {
-						Entity former = entities.get(j);
+				Prediction prediction = new Prediction();
+				// for each token, we generate an entity example
+				for(int idx=0;idx<tokens.size();idx++) {
+					// prepare the input for NN
+					Example example = getExampleFeatures(tokens, idx, false, null, null, tool, prediction);
+					double[] goldLabel = {0,0,0,0,0,0};
+					CoreLabel token = tokens.get(idx);
+					int index = Util.isInsideAGoldEntityAndReturnIt(token.beginPosition(), token.endPosition(), entities);
+					int transition = -1;
+					if(index == -1) {
+						// other
+						goldLabel[0] = 1;
+						transition = 0;
+					} else {
+						Entity gold = entities.get(index);
+						if(Util.isFirstWordOfEntity(gold, token)) {
+							if(gold.type.equals(Parameters.CHEMICAL)) {
+								// new chemical
+								goldLabel[1] = 1;
+								transition = 1;
+							} else {
+								// new disease
+								goldLabel[2] = 1;
+								transition = 2;
+							}
+						} else {
+							// append
+							goldLabel[3] = 1;
+							transition = 3;
+						}
+					}
+					prediction.addLabel(transition, -1);
+					example.label = goldLabel;
+					ret.add(example);
+					
+					// generate entities based on the latest label
+					int curTran = prediction.labels.get(prediction.labels.size()-1);
+					if(curTran==1) { // new chemical
+						CoreLabel current = tokens.get(idx);
+						  Entity chem = new Entity(null, Parameters.CHEMICAL, current.beginPosition(), 
+								  current.word(), null);
+						  chem.start = idx;
+						  chem.end = idx;
+						  prediction.entities.add(chem);
+					} else if(curTran==2) {// new disease
+						CoreLabel current = tokens.get(idx);
+						  Entity disease = new Entity(null, Parameters.DISEASE, current.beginPosition(), 
+								  current.word(), null);
+						  disease.start = idx;
+						  disease.end = idx;
+						  prediction.entities.add(disease);
+					} else if(curTran==3 && ClassifierRelation.checkWrongState(prediction)) { // append the current entity
+						Entity old = prediction.entities.get(prediction.entities.size()-1);
+						CoreLabel current = tokens.get(idx);
+						int whitespaceToAdd = current.beginPosition()-(old.offset+old.text.length());
+						for(int j=0;j<whitespaceToAdd;j++)
+							old.text += " ";
+						old.text += current.word();
+						old.end = idx;
+					}
+					
+					// begin to predict relations
+					int lastTran = prediction.labels.size()>=2 ? prediction.labels.get(prediction.labels.size()-2) : -1;
+					// judge whether to generate relations
+					if((lastTran==1 && curTran==1) || (lastTran==1 && curTran==2) || (lastTran==1 && curTran==0)
+							|| (lastTran==2 && curTran==0) || (lastTran==2 && curTran==1) || (lastTran==2 && curTran==2)
+							|| (lastTran==3 && curTran==0) || (lastTran==3 && curTran==1) || (lastTran==3 && curTran==2)
+					) { 
+						if((lastTran==3 && ClassifierRelation.checkWrongState(prediction)) || lastTran==1 || lastTran==2) {
+							// if curTran 1 or 2, the last entities should not be considered
+							int latterIdx = (curTran==1 || curTran==2) ? prediction.entities.size()-2:prediction.entities.size()-1;
+							Entity latter = prediction.entities.get(latterIdx);
+							for(int j=0;j<latterIdx;j++) {
+								Entity former = prediction.entities.get(j);
+								if(latter.type.equals(former.type))
+									continue;
+								Example relationExample = getExampleFeatures(tokens, -1, true, former, latter, tool, prediction);
+								double[] relationGoldLabel = {0,0,0,0,0,0};	
+								transition = -1;
+								RelationEntity tempRelation = new RelationEntity(Parameters.RELATION, former, latter);
+								if(sentence.relaitons.contains(tempRelation)) {
+									// connect
+									relationGoldLabel[5] = 1;
+									transition = 5;
+								} else {
+									// not connect
+									relationGoldLabel[4] = 1;
+									transition = 4;
+								}
+								relationExample.label = relationGoldLabel;
+								ret.add(relationExample);
+								prediction.addLabel(transition,-1);
+
+					            // generate relations based on the latest label
+					            curTran = prediction.labels.get(prediction.labels.size()-1);
+					        	if(curTran == 5) { // connect
+									RelationEntity relationEntity = new RelationEntity(Parameters.RELATION, former, latter);
+									prediction.relations.add(relationEntity);
+					        	}
+
+							}
+						}
 						
-						Example example = getExampleFeatures(tokens, -1, true, former, latter, tool);
-						double[] goldLabel = {0,0,0,0,0,0};
-						
+					}
+										
+				}
+				
+				
+				// when at the end of sentence, judge relation ignoring lastTran
+				int curTran = prediction.labels.get(prediction.labels.size()-1);
+				if((curTran==3 && ClassifierRelation.checkWrongState(prediction)) || curTran==1 || curTran==2) {
+					int latterIdx = prediction.entities.size()-1;
+					Entity latter = prediction.entities.get(latterIdx);
+
+					for(int j=0;j<latterIdx;j++) {
+						Entity former = prediction.entities.get(j);
+						if(latter.type.equals(former.type))
+							continue;
+						Example relationExample = getExampleFeatures(tokens, -1, true, former, latter, tool, prediction);
+						double[] relationGoldLabel = {0,0,0,0,0,0};	
+						int transition = -1;
 						RelationEntity tempRelation = new RelationEntity(Parameters.RELATION, former, latter);
 						if(sentence.relaitons.contains(tempRelation)) {
 							// connect
-							goldLabel[5] = 1;
+							relationGoldLabel[5] = 1;
+							transition = 5;
 						} else {
 							// not connect
-							goldLabel[4] = 1;
+							relationGoldLabel[4] = 1;
+							transition = 4;
 						}
-						example.label = goldLabel;
-						ret.add(example);
+						relationExample.label = relationGoldLabel;
+						ret.add(relationExample);
+						prediction.addLabel(transition, -1);
+
+			            // generate relations based on the latest label
+			            curTran = prediction.labels.get(prediction.labels.size()-1);
+			        	if(curTran == 5) { // connect
+							RelationEntity relationEntity = new RelationEntity(Parameters.RELATION, former, latter);
+							prediction.relations.add(relationEntity);
+			        	}
+
 					}
+					
 				}
 				
-	
+				
+				
 			}
 		}
 		
 		return ret;
+	
 	}
 	
 	public Example getExampleFeatures(List<CoreLabel> tokens, int idx, boolean bRelation,
-			Entity former, Entity latter, Tool tool) throws Exception {
+			Entity former, Entity latter, Tool tool, Prediction predict) throws Exception {
 		Example example = new Example(bRelation);
 		
 		if(!bRelation) {
@@ -668,6 +796,195 @@ public class SparseJoint extends Father implements Serializable {
 					example.featureIdx.add(getFeatureId("DICA#"+Parameters.PADDING));
 				}
 			}
+			
+			// global features
+			
+		
+			{ // is token in any ADE
+				String current = tokens.get(idx).word().toLowerCase();
+				boolean b = false; 
+				  for(RelationEntity relation:predict.relations) {
+					  int isIn = 0; // 0-not, 1-disease, 2-chemical
+					 
+					  for(int i=relation.getDisease().start;i<=relation.getDisease().end;i++) {
+						  if(tokens.get(i).word().toLowerCase().equals(current)) {
+							  isIn = 1;
+							  b = true;
+							  
+							  break;
+						  }
+					  }
+					  
+					  if(isIn == 0) {
+						  for(int i=relation.getChemical().start;i<=relation.getChemical().end;i++) {
+							  if(tokens.get(i).word().toLowerCase().equals(current)) {
+								  isIn = 2;
+								  b = true;
+								  
+								  break;
+							  }
+						  }
+					  }
+					  
+					  if(isIn != 0)
+						  example.featureIdx.add(getFeatureId("GLOFEA2#"+isIn));	
+						  
+				  }
+				  
+				  if(b == false) {
+					  example.featureIdx.add(getFeatureId("GLOFEA2#"+0));
+				  }
+				  
+				
+			}
+			
+			{ // is token's brown in any ADE
+				String tokBrown = getBrown(tokens.get(idx), tool);
+				if(tokBrown != null) {
+					boolean b = false;
+	
+					for(RelationEntity relation:predict.relations) {
+						int isIn = 0; // 0-not, 1-disease, 2-chemical
+						  for(int i=relation.getDisease().start;i<=relation.getDisease().end;i++) {
+							  String brownDisease = getBrown(tokens.get(i), tool);
+							  if(brownDisease==null)
+								  continue;
+							  
+							  if(tokBrown.equals(brownDisease)) {
+								  isIn = 1;
+								  b = true;
+								  
+								  break;
+							  }
+						  }
+						  
+						  if(isIn == 0) {
+							  for(int i=relation.getChemical().start;i<=relation.getChemical().end;i++) {
+								  String brownChem = getBrown(tokens.get(i), tool);
+								  if(brownChem==null)
+									  continue;
+								  
+								  if(tokBrown.equals(brownChem)) {
+									  isIn = 2;
+									  b = true;
+									  
+									  break;
+								  }
+							  }
+						  }
+						
+						
+						  if(isIn != 0)
+								example.featureIdx.add(getFeatureId("GLOFEA3#"+isIn));	
+					}
+					
+					if(b == false) 
+						example.featureIdx.add(getFeatureId("GLOFEA3#"+0));
+				}
+			}
+				
+
+			
+			
+			{ // is token's Synset in any ADE
+				String toksynset = getSynset(tokens.get(idx), tool);
+				if(toksynset != null) {
+					boolean b = false;
+					for(RelationEntity relation:predict.relations) {
+						int isIn = 0; // 0-not, 1-disease, 2-chemical
+						  for(int i=relation.getDisease().start;i<=relation.getDisease().end;i++) {
+							  String synsetDisease = getSynset(tokens.get(i), tool);
+							  if(synsetDisease==null)
+								  continue;
+							  
+							  if(toksynset.equals(synsetDisease)) {
+								  isIn = 1;
+								  b = true;
+								  
+								  break;
+							  }
+						  }
+						  
+						  if(isIn == 0) {
+							  for(int i=relation.getChemical().start;i<=relation.getChemical().end;i++) {
+								  String synsetChem = getSynset(tokens.get(i), tool);
+								  if(synsetChem==null)
+									  continue;
+								  
+								  if(toksynset.equals(synsetChem)) {
+									  isIn = 2;
+									  b = true;
+									  
+									  break;
+								  }
+							  }
+						  }
+						
+						
+						  if(isIn != 0)
+								example.featureIdx.add(getFeatureId("GLOFEA4#"+isIn));	
+					}
+					
+					if(b == false) 
+						example.featureIdx.add(getFeatureId("GLOFEA4#"+0));
+				}
+				
+
+			}
+			
+			
+			{ // A -> B and tok
+				Entity B = Util.getClosestCoorEntity(tokens, idx, predict);
+				if(B != null) {
+					{
+						boolean b = false;
+						  for(RelationEntity relation:predict.relations) {
+							  if(relation.getDisease().text.toLowerCase().equals(B.text.toLowerCase())) {
+								  b = true;
+								  example.featureIdx.add(getFeatureId("GLOFEA5#"+1/*+"#"+
+											ClassifierEntity.wordPreprocess(tokens.get(idx), parameters)*/));
+							  }
+							  else if(relation.getChemical().text.toLowerCase().equals(B.text.toLowerCase()))  {
+								  b = true;
+								  example.featureIdx.add(getFeatureId("GLOFEA5#"+2/*+"#"+
+										ClassifierEntity.wordPreprocess(tokens.get(idx), parameters)*/));	
+							  }
+						  }
+						  
+						  if(b == false)
+							  example.featureIdx.add(getFeatureId("GLOFEA5#"+0));
+					}
+					
+				}
+			}
+			
+			
+			{ 
+				Entity previous = Util.getPreviousEntity(tokens, idx, predict);
+				if(previous != null) {
+					// whether the entity before tok is in relations
+					int b = 0;
+					for(RelationEntity relation:predict.relations) {
+						  if(relation.getDisease().text.toLowerCase().equals(previous.text.toLowerCase())) {
+							  b = 1;
+							  break;
+						  }
+						  else if(relation.getChemical().text.toLowerCase().equals(previous.text.toLowerCase()))  {
+							  b = 2;
+							  break;
+						  }
+					}
+					
+					example.featureIdx.add(getFeatureId("GLOFEA10#"+b));	
+					
+				}
+				
+			}
+			
+
+			
+			
+			
 		} else {
 			// words before the former, but in the window
 			for(int i=0;i<2;i++) {
@@ -709,7 +1026,7 @@ public class SparseJoint extends Father implements Serializable {
 			}
 			
 			// entity type
-			example.featureIdx.add(getFeatureId("ENT#"+former.type+"#"+latter.type));
+			//example.featureIdx.add(getFeatureId("ENT#"+former.type+"#"+latter.type));
 			
 			// entity wordnet
 			example.featureIdx.add(getFeatureId("SYN#"+ClassifierEntity.getSynset(former.text, tool)+"#"+ClassifierEntity.getSynset(latter.text, tool)));
@@ -717,6 +1034,124 @@ public class SparseJoint extends Father implements Serializable {
 			
 			// entity
 			example.featureIdx.add(getFeatureId("EN#"+former.text.toLowerCase()+"#"+latter.text.toLowerCase()));
+			
+			// global
+			{ // former -> B and latter
+				Entity B = Util.getClosestCoorEntity(tokens, latter, predict);
+				if(B != null) {
+					
+					if(!B.type.equals(former.type)) {
+						Entity chemical = null;
+						Entity disease = null;
+						if(former.type.equals("Chemical")) {
+							chemical = former;
+							disease = B;
+						} else {
+							chemical = B;
+							disease = former;
+						}
+						boolean b = false;
+						for(RelationEntity relation:predict.relations) {
+							  if(relation.getDisease().text.toLowerCase().equals(disease.text.toLowerCase()) 
+								&& relation.getChemical().text.toLowerCase().equals(chemical.text.toLowerCase())) {
+								  
+								  	if(former.type.equals("Chemical")) {
+								  		example.featureIdx.add(getFeatureId("GLOFEA6#"/*+
+											  latter.text.toLowerCase()+
+											  former.text.toLowerCase()*/));
+								  		b = true;
+									} else {
+								  		example.featureIdx.add(getFeatureId("GLOFEA6#"/*+
+								  				  former.text.toLowerCase()+
+												  latter.text.toLowerCase()*/
+												  ));
+								  		b = true;
+									}
+								  	
+							  }
+						 }
+						
+						if(b == false)
+							example.featureIdx.add(getFeatureId("GLOFEA6#"+0));
+					}
+
+					  
+
+				} 
+			}
+			
+			
+			{ // A and former -> latter
+				Entity A = Util.getClosestCoorEntity(tokens, former, predict);
+				if(A != null) {
+					
+					if(!A.type.equals(latter.type)) {
+						Entity chemical = null;
+						Entity disease = null;
+						if(latter.type.equals("Chemical")) {
+							chemical = latter;
+							disease = A;
+						} else {
+							chemical = A;
+							disease = latter;
+						}
+						boolean b = false;
+						for(RelationEntity relation:predict.relations) {
+							if(relation.getDisease().text.toLowerCase().equals(disease.text.toLowerCase()) 
+									&& relation.getChemical().text.toLowerCase().equals(chemical.text.toLowerCase())) {
+	
+								  if(former.type.equals("Chemical")) {
+								  		example.featureIdx.add(getFeatureId("GLOFEA7#"/*+
+											  latter.text.toLowerCase()+
+											  former.text.toLowerCase()*/));
+								  		b = true;
+									} else {
+								  		example.featureIdx.add(getFeatureId("GLOFEA7#"/*+
+								  				  former.text.toLowerCase()+
+												  latter.text.toLowerCase()*/));
+								  		b = true;
+									}
+							  }
+						  }
+						
+						if(b==false)
+							example.featureIdx.add(getFeatureId("GLOFEA7#"+0));
+					}
+					
+					
+					  
+	
+				}
+			}
+			
+			{   // former latter has been in ADE
+				Entity chemical = null;
+				Entity disease = null;
+				if(latter.type.equals("Chemical")) {
+					chemical = latter;
+					disease = former;
+				} else {
+					chemical = former;
+					disease = latter;
+				}
+				boolean b = false;
+				for(RelationEntity relation:predict.relations) {
+					if(relation.getDisease().text.toLowerCase().equals(disease.text.toLowerCase()) 
+							&& relation.getChemical().text.toLowerCase().equals(chemical.text.toLowerCase())) {
+
+							example.featureIdx.add(getFeatureId("GLOFEA8#"/*+
+									disease.text.toLowerCase()+
+									chemical.text.toLowerCase()*/));
+							b = true;
+							
+					  }
+				  }
+				if(b==false)
+					example.featureIdx.add(getFeatureId("GLOFEA8#"+0));
+					
+			}
+					
+			
 		}
 		
 		

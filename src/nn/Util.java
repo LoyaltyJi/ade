@@ -143,7 +143,7 @@ public class Util {
 	}
 	
 	static void prepare1orMoreWordEntity(Tool tool, Parameters parameters, List<Abstract> abs) throws Exception {
-		NNADE_word nnade = (NNADE_word)ObjectSerializer.readObjectFromFile("E:\\ade\\nnade.ser0");
+		NNADE nnade = (NNADE)ObjectSerializer.readObjectFromFile("E:\\ade\\nnade.ser0");
 		
 		ArrayList<String> results = new ArrayList<String>();
 		int max = 20;
@@ -306,7 +306,7 @@ RELATION:        for(RelationEntity relation:gold.relaitons) {
 
 	
 		static void prepareEntityTSNE(Tool tool, Parameters parameters, List<Abstract> abs) throws Exception {
-			NNADE_word nnade = (NNADE_word)ObjectSerializer.readObjectFromFile("E:\\ade\\nnade.ser0");
+			NNADE nnade = (NNADE)ObjectSerializer.readObjectFromFile("E:\\ade\\nnade.ser0");
 			/*HashSet<String> results = new HashSet<String>(Arrays.asList(new String[]
 			{"induce", "associate", "relate", "male", "female", "it", "describe", "report"}));
 			*/
@@ -499,7 +499,7 @@ RELATION:        for(RelationEntity relation:gold.relaitons) {
 		
 		
 		static void prepareTSNE(Tool tool, Parameters parameters, List<Abstract> abs) throws Exception {
-			NNADE_word nnade = (NNADE_word)ObjectSerializer.readObjectFromFile("E:\\ade\\nnade.ser0");
+			NNADE nnade = (NNADE)ObjectSerializer.readObjectFromFile("E:\\ade\\nnade.ser0");
 			/*HashSet<String> results = new HashSet<String>(Arrays.asList(new String[]
 			{"induce", "associate", "relate", "male", "female", "it", "describe", "report"}));
 			*/

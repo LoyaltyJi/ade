@@ -110,16 +110,7 @@ public class Parameters implements Serializable{
 	  // start at 0
 	  public int outputSize = 6;
 	  
-	  
-	  /**
-	   * Size of mini-batch for training. A random subset of training
-	   * examples of this size will be used to train the classifier on each
-	   * iteration.
-	   * Instead of a fixed number, we use the percentage because the numbers of 
-	   * entity examples and relation ones are not balanced.
-	   */
-	  public double batchEntityPercent = 0.1;
-	  public double batchRelationPercent = 0.1;
+	  public int batchSize = 50;
 	  
 	  // for gradient checking
 	  public double epsilonGradientCheck = 1e-4;
@@ -171,8 +162,7 @@ public class Parameters implements Serializable{
 		outputSize = PropertiesUtils.getInt(props, "outputSize", outputSize);
 		
 		
-		batchEntityPercent = PropertiesUtils.getDouble(props, "batchEntityPercent", batchEntityPercent);
-		batchRelationPercent = PropertiesUtils.getDouble(props, "batchRelationPercent", batchRelationPercent);
+		batchSize = PropertiesUtils.getInt(props, "batchSize", batchSize);
 		epsilonGradientCheck = PropertiesUtils.getDouble(props, "epsilonGradientCheck", epsilonGradientCheck);
 		wordPreprocess = PropertiesUtils.getInt(props, "wordPreprocess", wordPreprocess);
 		prefixLength = PropertiesUtils.getInt(props, "prefixLength", prefixLength);
@@ -219,8 +209,7 @@ public class Parameters implements Serializable{
 		System.out.printf("outputSize = %d%n", outputSize);
 		
 		
-		System.out.printf("batchEntityPercent = %.2g%n", batchEntityPercent);
-		System.out.printf("batchRelationPercent = %.2g%n", batchRelationPercent);
+		System.out.printf("batchSize = %d%n", batchSize);
 		System.out.printf("epsilonGradientCheck = %.2g%n", epsilonGradientCheck);
 		System.out.printf("wordPreprocess = %d%n", wordPreprocess);
 		System.out.printf("prefixLength = %d%n", prefixLength);

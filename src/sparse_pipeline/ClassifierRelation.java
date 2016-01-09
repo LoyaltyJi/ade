@@ -26,6 +26,7 @@ import edu.stanford.nlp.process.Morphology;
 import edu.stanford.nlp.stats.Counter;
 import edu.stanford.nlp.tagger.maxent.MaxentTagger;
 import edu.stanford.nlp.util.PropertiesUtils;
+import gnu.trove.TIntArrayList;
 import gnu.trove.TObjectIntHashMap;
 import utils.ADESentence;
 import utils.Abstract;
@@ -126,6 +127,7 @@ public class ClassifierRelation extends Father implements Serializable {
 			BestPerformance best = classifierRelation.trainAndTest(trainAb, devAb, testAb,modelFile+i, tool, debug, entityModelFile+i);
 			bestAll.add(best);
 			
+			break;
 		}
 		
 		// dev
@@ -221,7 +223,7 @@ public class ClassifierRelation extends Father implements Serializable {
 		}
 		
 		// entity type
-		example.featureIdx.add(getFeatureId("ENT#"+former.type+"#"+latter.type));
+		//example.featureIdx.add(getFeatureId("ENT#"+former.type+"#"+latter.type));
 		
 		// entity wordnet
 		example.featureIdx.add(getFeatureId("SYN#"+ClassifierEntity.getSynset(former.text, tool)+"#"+ClassifierEntity.getSynset(latter.text, tool)));
@@ -234,8 +236,9 @@ public class ClassifierRelation extends Father implements Serializable {
 		return example;
 	}
 	
-	public List<Example> generateRelationTrainExamples(List<Abstract> trainAbs, Tool tool)
-			throws Exception {
+	public List<Example> generateTrainExamples(List<Abstract> trainAbs, Tool tool)
+			throws Exception  {
+		
 		List<Example> ret = new ArrayList<>();
 				
 		for(Abstract ab:trainAbs) { 
@@ -245,36 +248,157 @@ public class ClassifierRelation extends Father implements Serializable {
 				// resort the entities in the sentence
 				List<Entity> entities = Util.resortEntity(sentence);
 				// fill 'start' and 'end' of the entities
-				Util.fillEntity(entities, tokens);
+				//Util.fillEntity(entities, tokens);
 				
-				// for each entity pair, we generate a relation example
-				for(int i=0;i<entities.size();i++) {
-					Entity latter = entities.get(i);
-					for(int j=0;j<i;j++) {
-						Entity former = entities.get(j);
+				Prediction prediction = new Prediction();
+				// for each token, we generate an entity example
+				for(int idx=0;idx<tokens.size();idx++) {
+					// prepare the input for NN
+					CoreLabel token = tokens.get(idx);
+					int index = Util.isInsideAGoldEntityAndReturnIt(token.beginPosition(), token.endPosition(), entities);
+					int transition = -1;
+					if(index == -1) {
+						// other
+						transition = 0;
+					} else {
+						Entity gold = entities.get(index);
+						if(Util.isFirstWordOfEntity(gold, token)) {
+							if(gold.type.equals(Parameters.CHEMICAL)) {
+								// new chemical
+								transition = 1;
+							} else {
+								// new disease
+								transition = 2;
+							}
+						} else {
+							// append
+							transition = 3;
+						}
+					}
+					prediction.addLabel(transition, -1);
+					
+					// generate entities based on the latest label
+					int curTran = prediction.labels.get(prediction.labels.size()-1);
+					if(curTran==1) { // new chemical
+						CoreLabel current = tokens.get(idx);
+						  Entity chem = new Entity(null, Parameters.CHEMICAL, current.beginPosition(), 
+								  current.word(), null);
+						  chem.start = idx;
+						  chem.end = idx;
+						  prediction.entities.add(chem);
+					} else if(curTran==2) {// new disease
+						CoreLabel current = tokens.get(idx);
+						  Entity disease = new Entity(null, Parameters.DISEASE, current.beginPosition(), 
+								  current.word(), null);
+						  disease.start = idx;
+						  disease.end = idx;
+						  prediction.entities.add(disease);
+					} else if(curTran==3 && ClassifierRelation.checkWrongState(prediction)) { // append the current entity
+						Entity old = prediction.entities.get(prediction.entities.size()-1);
+						CoreLabel current = tokens.get(idx);
+						int whitespaceToAdd = current.beginPosition()-(old.offset+old.text.length());
+						for(int j=0;j<whitespaceToAdd;j++)
+							old.text += " ";
+						old.text += current.word();
+						old.end = idx;
+					}
+					
+					// begin to predict relations
+					int lastTran = prediction.labels.size()>=2 ? prediction.labels.get(prediction.labels.size()-2) : -1;
+					// judge whether to generate relations
+					if((lastTran==1 && curTran==1) || (lastTran==1 && curTran==2) || (lastTran==1 && curTran==0)
+							|| (lastTran==2 && curTran==0) || (lastTran==2 && curTran==1) || (lastTran==2 && curTran==2)
+							|| (lastTran==3 && curTran==0) || (lastTran==3 && curTran==1) || (lastTran==3 && curTran==2)
+					) { 
+						if((lastTran==3 && ClassifierRelation.checkWrongState(prediction)) || lastTran==1 || lastTran==2) {
+							// if curTran 1 or 2, the last entities should not be considered
+							int latterIdx = (curTran==1 || curTran==2) ? prediction.entities.size()-2:prediction.entities.size()-1;
+							Entity latter = prediction.entities.get(latterIdx);
+							for(int j=0;j<latterIdx;j++) {
+															
+								Entity former = prediction.entities.get(j);
+								if(latter.type.equals(former.type))
+									continue;
+								
+								Example relationExample = getExampleFeatures(tokens, true, former, latter, tool);
+								double[] relationGoldLabel = {0,0};	
+								transition = -1;
+								RelationEntity tempRelation = new RelationEntity(Parameters.RELATION, former, latter);
+								if(sentence.relaitons.contains(tempRelation)) {
+									// connect
+									relationGoldLabel[1] = 1;
+									transition = 5;
+								} else {
+									// not connect
+									relationGoldLabel[0] = 1;
+									transition = 4;
+								}
+								relationExample.label = relationGoldLabel;
+								ret.add(relationExample);
+								prediction.addLabel(transition,-1);
+
+					            // generate relations based on the latest label
+					            curTran = prediction.labels.get(prediction.labels.size()-1);
+					        	if(curTran == 5) { // connect
+									RelationEntity relationEntity = new RelationEntity(Parameters.RELATION, former, latter);
+									prediction.relations.add(relationEntity);
+					        	}
+
+							}
+						}
 						
-						Example example = getExampleFeatures(tokens, true, former, latter, tool);
-						double[] goldLabel = {0,0};
-						
+					}
+										
+				}
+				
+				
+				// when at the end of sentence, judge relation ignoring lastTran
+				int curTran = prediction.labels.get(prediction.labels.size()-1);
+				if((curTran==3 && ClassifierRelation.checkWrongState(prediction)) || curTran==1 || curTran==2) {
+					int latterIdx = prediction.entities.size()-1;
+					Entity latter = prediction.entities.get(latterIdx);
+
+					for(int j=0;j<latterIdx;j++) {
+						Entity former = prediction.entities.get(j);
+						if(latter.type.equals(former.type))
+							continue;
+						Example relationExample = getExampleFeatures(tokens, true, former, latter, tool);
+						double[] relationGoldLabel = {0,0};	
+						int transition = -1;
 						RelationEntity tempRelation = new RelationEntity(Parameters.RELATION, former, latter);
 						if(sentence.relaitons.contains(tempRelation)) {
 							// connect
-							goldLabel[1] = 1;
+							relationGoldLabel[1] = 1;
+							transition = 5;
 						} else {
 							// not connect
-							goldLabel[0] = 1;
+							relationGoldLabel[0] = 1;
+							transition = 4;
 						}
-						example.label = goldLabel;
-						ret.add(example);
+						relationExample.label = relationGoldLabel;
+						ret.add(relationExample);
+						prediction.addLabel(transition, -1);
+
+			            // generate relations based on the latest label
+			            curTran = prediction.labels.get(prediction.labels.size()-1);
+			        	if(curTran == 5) { // connect
+							RelationEntity relationEntity = new RelationEntity(Parameters.RELATION, former, latter);
+							prediction.relations.add(relationEntity);
+			        	}
+
 					}
+					
 				}
 				
-	
+				
+				
 			}
 		}
 		
 		return ret;
+	
 	}
+	
 	
 	public BestPerformance trainAndTest(List<Abstract> trainAbs, List<Abstract> devAbs, 
 			List<Abstract> testAbs, String modelFile, 
@@ -285,7 +409,7 @@ public class ClassifierRelation extends Father implements Serializable {
 		// generate training examples
 		// generate alphabet simultaneously
 		featureIDs = new TObjectIntHashMap<>();
-		List<Example> exampleRelation = generateRelationTrainExamples(trainAbs, tool);
+		List<Example> examples = generateTrainExamples(trainAbs, tool);
 		freezeAlphabet = true;
 		System.out.println("Total sparse feature number: "+featureIDs.size());
 		// new a NN and initialize its weight
@@ -295,37 +419,57 @@ public class ClassifierRelation extends Father implements Serializable {
 		long startTime = System.currentTimeMillis();
 		BestPerformance best = new BestPerformance();
 		
+		int inputSize = examples.size();
+		int batchBlock = inputSize / parameters.batchSize;
+		if (inputSize % parameters.batchSize != 0)
+			batchBlock++;
+		
+		  TIntArrayList indexes = new TIntArrayList();
+		  for (int i = 0; i < inputSize; ++i)
+		    indexes.add(i);
+		  
+		  List<Example> subExamples = new ArrayList<>();
+		
 		for (int iter = 0; iter < parameters.maxIter; ++iter) {
+			
+			for (int updateIter = 0; updateIter < batchBlock; updateIter++) {
+				subExamples.clear();
+				int start_pos = updateIter * parameters.batchSize;
+				int end_pos = (updateIter + 1) * parameters.batchSize;
+				if (end_pos > inputSize)
+					end_pos = inputSize;
+
+				for (int idy = start_pos; idy < end_pos; idy++) {
+					subExamples.add(examples.get(indexes.get(idy)));
+				}
+				
+				GradientKeeper keeper = sparse.process(subExamples);
+				sparse.updateWeights(keeper);
+			}
 						
-			// mini-batch
-			int batchSizeRelation = (int)(exampleRelation.size()*parameters.batchRelationPercent);
-			if(batchSizeRelation == 0)
-				batchSizeRelation++;
-			List<Example> batchExampleRelation = Util.getRandomSubList(exampleRelation, batchSizeRelation);
-			
-			GradientKeeper keeper = sparse.process(batchExampleRelation);
-			
-			//sparse.checkGradients(keeper, batchExampleEntity);
-			sparse.updateWeights(keeper);
 			
 			
 			if (iter>0 && iter % parameters.evalPerIter == 0) {
-				evaluate(tool, devAbs, testAbs, modelFile, best, classifierEntity);
+				evaluate(tool, devAbs, testAbs, modelFile, best, classifierEntity, false);
 			}			
 		}
 		
-		evaluate(tool, devAbs, testAbs, modelFile, best, classifierEntity);
+		evaluate(tool, devAbs, testAbs, modelFile, best, classifierEntity, true);
 		
 		return best;
 	}
 	
 	public void evaluate(Tool tool, List<Abstract> devAbs, List<Abstract> testAbs, String modelFile, BestPerformance best
-			, ClassifierEntity classifierEntity)
+			, ClassifierEntity classifierEntity, boolean printerror )
 			throws Exception {
 		
 
 		DecodeStatistic stat = new DecodeStatistic();
         for(Abstract devAb:devAbs) {
+        	if(printerror) {
+        		System.out.println(Parameters.SEPARATOR);
+        		System.out.println("Document: "+devAb.id);
+        	}
         	for(ADESentence gold:devAb.sentences) {
         		List<CoreLabel> tokens = ClassifierEntity.prepareNLPInfo(tool, gold);
         		ADESentence predicted = null;
@@ -345,8 +489,40 @@ public class ClassifierRelation extends Father implements Serializable {
         			if(gold.relaitons.contains(preRelation))
         				stat.ctCorrectRelation++;
         		}
-
+        		
+        		if(printerror) {
+	        		System.out.println("Gold Entity: ");
+	        		for(Entity entity:gold.entities)
+	        			System.out.println(entity);
+	        		System.out.println("Predict Entity: ");
+	        		for(Entity entity:predicted.entities)
+	        			System.out.println(entity);
+	        		System.out.println("Gold relation: ");
+	        		for(RelationEntity re:gold.relaitons)
+	        			System.out.println(re);
+	        		System.out.println("Predict relation: ");
+	        		for(RelationEntity re:predicted.relaitons)
+	        			System.out.println(re);
+        		}
+        		
+        		
         	}
+        	
+        	if(printerror) {
+        		System.out.println(Parameters.SEPARATOR);
+        	}
+        }
+        
+        if(printerror) {
+	        System.out.println(Parameters.SEPARATOR);
+	        System.out.println(stat.getEntityTP());
+	        System.out.println(stat.getEntityFP());
+	        System.out.println(stat.getEntityFN());
+	        System.out.println(stat.getRelationTP());
+	        System.out.println(stat.getRelationFP());
+	        System.out.println(stat.getRelationFN());
+	        System.out.println(Parameters.SEPARATOR);
+	        return;
         }
         
         System.out.println(Parameters.SEPARATOR);
@@ -474,6 +650,8 @@ public class ClassifierRelation extends Father implements Serializable {
 					Entity latter = prediction.entities.get(latterIdx);
 					for(int j=0;j<latterIdx;j++) {
 						Entity former = prediction.entities.get(j);
+						if(latter.type.equals(former.type))
+							continue;
 						Example relationExample = getExampleFeatures(tokens, true, former, latter, tool);
 						transition = sparse.giveTheBestChoice(relationExample)+4; // add the offset to simulate a joint decoder
 						prediction.addLabel(transition,-1);
@@ -502,6 +680,8 @@ public class ClassifierRelation extends Father implements Serializable {
 
 			for(int j=0;j<latterIdx;j++) {
 				Entity former = prediction.entities.get(j);
+				if(latter.type.equals(former.type))
+					continue;
 				Example relationExample = getExampleFeatures(tokens, true, former, latter, tool);
 				int transition = sparse.giveTheBestChoice(relationExample)+4; // add the offset to simulate a joint decoder
 				prediction.addLabel(transition, -1);

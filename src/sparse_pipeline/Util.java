@@ -252,7 +252,100 @@ public class Util {
 	    return input.subList(0, subsetSize);
 	  }
 	
-	
+	  public static final int COOR_WINDOW = 9;
+	  public static final HashSet<String> coor = new HashSet<>(Arrays.asList("and","or","whereas","with",
+			  "accompanied", "which"));
+	  
+	  public static Entity getClosestCoorEntity(List<CoreLabel> tokens, int idx, Prediction predict) {
+		  int isCoor = 0;
+		  int i = idx-1;
+		  for(;i>=0;i--) {
+			  if(coor.contains(tokens.get(i).word().toLowerCase())) {
+				  isCoor = 1;
+				  break;
+			  }
+			 
+		  } 
+		  
+		  if(isCoor!=0) {
+			  int begin = idx-COOR_WINDOW;
+			  int end = i-1;
+			  if(end>=begin) {
+				  for(int j=predict.entities.size()-1;j>=0;j--) {
+					  if(predict.entities.get(j).end>=begin && predict.entities.get(j).end<=end)
+						  return predict.entities.get(j);
+				  }
+				  return null;
+			  } else
+				  return null;
+ 
+		  } else
+			  return null;
+	  }
+	  
+	  public static Entity getClosestCoorEntity(List<CoreLabel> tokens, 
+			  Entity current, Prediction predict) {
+		  int isCoor = 0;
+		  int i=current.start-1;
+		  for(;i>=0;i--) {
+			  if(coor.contains(tokens.get(i).word().toLowerCase())) {
+				  isCoor = 1;
+				  break;
+			  }
+		  } 
+		  
+		  
+		  if(isCoor!=0) {
+			  
+			  int begin = current.start-COOR_WINDOW;
+			  int end = i-1;
+			  if(end>=begin) {
+				  for(int j=predict.entities.size()-1;j>=0;j--) {
+					  if(predict.entities.get(j).equals(current))
+						  continue;
+					  if(predict.entities.get(j).end>=begin && predict.entities.get(j).end<=end)
+						  return predict.entities.get(j);
+				  }
+				  return null;
+			  } else
+				  return null;
+		  } else
+			  return null;
+		  
+	  }
+  
+	  public static Entity getPreviousEntity(List<CoreLabel> tokens, int idx, Prediction predict) {
+		  if(predict.entities.isEmpty())
+			  return null;
+		  else {
+			  for(int j=predict.entities.size()-1;j>=0;j--) {
+				  if(predict.entities.get(j).end < idx)
+					  return predict.entities.get(j);
+			  }
+			  return null;
+		  }
+
+ 
+	  }
+	  
+	  // in 2 tokens(include 2)
+	  public static Entity getNeighborEntity(List<CoreLabel> tokens, int idx, Prediction predict) {
+		  if(predict.entities.isEmpty())
+			  return null;
+		  else {
+			  int begin = idx-2;
+			  int end = idx-1;
+			  for(int j=predict.entities.size()-1;j>=0;j--) {
+
+				  if(predict.entities.get(j).end>=begin && predict.entities.get(j).end<=end)
+					  return predict.entities.get(j);
+			  }
+			  return null;
+
+		  }
+
+	  }
+	  
 }
 
 class Evaluate {

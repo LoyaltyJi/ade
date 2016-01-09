@@ -136,6 +136,8 @@ public class ClassifierEntity extends Father implements Serializable {
 					tool, debug);
 			
 			bestAll.add(best);
+			
+			
 		}
 		
 		// for dev, use marco average scores of their best performance
@@ -177,7 +179,7 @@ public class ClassifierEntity extends Father implements Serializable {
 		// generate training examples
 		// generate alphabet simultaneously
 		featureIDs = new TObjectIntHashMap<>();
-		List<Example> exampleEntity = generateEntityTrainExamples(trainAbs, tool);
+		List<Example> examples = generateTrainExamples(trainAbs, tool);
 		freezeAlphabet = true;
 		System.out.println("Total sparse feature number: "+featureIDs.size());
 		// new a NN and initialize its weight
@@ -187,19 +189,35 @@ public class ClassifierEntity extends Father implements Serializable {
 		long startTime = System.currentTimeMillis();
 		BestPerformance best = new BestPerformance();
 		
+		int inputSize = examples.size();
+		int batchBlock = inputSize / parameters.batchSize;
+		if (inputSize % parameters.batchSize != 0)
+			batchBlock++;
+		
+		TIntArrayList indexes = new TIntArrayList();
+		  for (int i = 0; i < inputSize; ++i)
+		    indexes.add(i);
+		  
+		  List<Example> subExamples = new ArrayList<>();
+		
 		for (int iter = 0; iter < parameters.maxIter; ++iter) {
+			
+			for (int updateIter = 0; updateIter < batchBlock; updateIter++) {
+				
+				subExamples.clear();
+				int start_pos = updateIter * parameters.batchSize;
+				int end_pos = (updateIter + 1) * parameters.batchSize;
+				if (end_pos > inputSize)
+					end_pos = inputSize;
+
+				for (int idy = start_pos; idy < end_pos; idy++) {
+					subExamples.add(examples.get(indexes.get(idy)));
+				}
+				
+				GradientKeeper keeper = sparse.process(subExamples);
+				sparse.updateWeights(keeper);
+			}
 						
-			// mini-batch
-			int batchSizeEntity = (int)(exampleEntity.size()*parameters.batchEntityPercent);
-			if(batchSizeEntity == 0)
-				batchSizeEntity++;
-			List<Example> batchExampleEntity = Util.getRandomSubList(exampleEntity, batchSizeEntity);
-			
-			GradientKeeper keeper = sparse.process(batchExampleEntity);
-			
-			//sparse.checkGradients(keeper, batchExampleEntity);
-			sparse.updateWeights(keeper);
-			
 			
 			if (iter>0 && iter % parameters.evalPerIter == 0) {
 				evaluate(tool, devAbs, testAbs, modelFile, best);
@@ -218,6 +236,8 @@ public class ClassifierEntity extends Father implements Serializable {
 		// evaluate on dev firstly
         DecodeStatistic stat = new DecodeStatistic();
         for(Abstract devAb:devAbs) {
+    		
+    		
         	for(ADESentence gold:devAb.sentences) {
         		List<CoreLabel> tokens = prepareNLPInfo(tool, gold);
         		ADESentence predicted = null;
@@ -230,8 +250,12 @@ public class ClassifierEntity extends Father implements Serializable {
         				stat.ctCorrectEntity++;
     			}
         		
+        		
         	}
+        	
+
         }
+        
         
         System.out.println(Parameters.SEPARATOR);
         double dev_pEntity = stat.getEntityPrecision();
@@ -509,57 +533,94 @@ public class ClassifierEntity extends Father implements Serializable {
 		return example;
 	}
 	
-	public List<Example> generateEntityTrainExamples(List<Abstract> trainAbs, Tool tool)
-			throws Exception {
+
+	
+	public List<Example> generateTrainExamples(List<Abstract> trainAbs, Tool tool)
+			throws Exception  {
+		
 		List<Example> ret = new ArrayList<>();
 				
 		for(Abstract ab:trainAbs) { 
 			for(ADESentence sentence:ab.sentences) {
 				// for each sentence
-				List<CoreLabel> tokens = prepareNLPInfo(tool, sentence);
+				List<CoreLabel> tokens = ClassifierEntity.prepareNLPInfo(tool, sentence);
 				// resort the entities in the sentence
 				List<Entity> entities = Util.resortEntity(sentence);
+				// fill 'start' and 'end' of the entities
+				//Util.fillEntity(entities, tokens);
 				
+				Prediction prediction = new Prediction();
 				// for each token, we generate an entity example
 				for(int idx=0;idx<tokens.size();idx++) {
+					// prepare the input for NN
 					Example example = getExampleFeatures(tokens, idx, false, tool);
 					double[] goldLabel = {0,0,0,0};
 					CoreLabel token = tokens.get(idx);
-					
 					int index = Util.isInsideAGoldEntityAndReturnIt(token.beginPosition(), token.endPosition(), entities);
-					
+					int transition = -1;
 					if(index == -1) {
 						// other
 						goldLabel[0] = 1;
+						transition = 0;
 					} else {
 						Entity gold = entities.get(index);
 						if(Util.isFirstWordOfEntity(gold, token)) {
 							if(gold.type.equals(Parameters.CHEMICAL)) {
 								// new chemical
 								goldLabel[1] = 1;
+								transition = 1;
 							} else {
 								// new disease
 								goldLabel[2] = 1;
+								transition = 2;
 							}
 						} else {
 							// append
 							goldLabel[3] = 1;
+							transition = 3;
 						}
-						
-						
 					}
-					
+					prediction.addLabel(transition, -1);
 					example.label = goldLabel;
 					ret.add(example);
+					
+					// generate entities based on the latest label
+					int curTran = prediction.labels.get(prediction.labels.size()-1);
+					if(curTran==1) { // new chemical
+						CoreLabel current = tokens.get(idx);
+						  Entity chem = new Entity(null, Parameters.CHEMICAL, current.beginPosition(), 
+								  current.word(), null);
+						  chem.start = idx;
+						  chem.end = idx;
+						  prediction.entities.add(chem);
+					} else if(curTran==2) {// new disease
+						CoreLabel current = tokens.get(idx);
+						  Entity disease = new Entity(null, Parameters.DISEASE, current.beginPosition(), 
+								  current.word(), null);
+						  disease.start = idx;
+						  disease.end = idx;
+						  prediction.entities.add(disease);
+					} else if(curTran==3 && ClassifierRelation.checkWrongState(prediction)) { // append the current entity
+						Entity old = prediction.entities.get(prediction.entities.size()-1);
+						CoreLabel current = tokens.get(idx);
+						int whitespaceToAdd = current.beginPosition()-(old.offset+old.text.length());
+						for(int j=0;j<whitespaceToAdd;j++)
+							old.text += " ";
+						old.text += current.word();
+						old.end = idx;
+					}
+					
 					
 										
 				}
 				
+
 				
 			}
 		}
 		
 		return ret;
+	
 	}
 	
 	public static String getSynset(CoreLabel token, Tool tool) {
